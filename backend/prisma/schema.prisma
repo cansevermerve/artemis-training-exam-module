@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                String    @id
+  isActive          Boolean
+  createdAt         DateTime
+  mikroLastSync     DateTime?
+  pdksExempt        Boolean
+  mfaVerifiedAt     DateTime?
+  updatedAt         DateTime
+  mfaEnabled        Boolean
+  mfaSecret         String?
+  title             String?
+  phone             String?
+  avatar            String?
+  simetraPersonelId String?
+  managerId         String?
+  mikroPerKod       String?
+  n2DriverName      String?
+  email             String?
+  name              String?
+  passwordHash      String?
+  role              String?
+  department        String?
+  mfaMethod         String?
+
+  createdTrainings  Training[]           @relation("TrainingCreator")
+  assignments       TrainingAssignment[] @relation("AssignedUser")
+  assignedByRecords TrainingAssignment[] @relation("AssignmentCreator")
+  trainingDocuments TrainingDocument[]   @relation("DocumentEmployee")
+  uploadedDocuments TrainingDocument[]   @relation("DocumentUploader")
+
+  @@map("User")
+}
+
+model Training {
+  id                      String    @id @default(uuid())
+  title                   String
+  description             String?
+  category                String
+  trainingKind            String
+  trainingFormat          String
+  trainingDate            DateTime?
+  startTime               String?
+  durationMinutes         Int
+  location                String?
+  isDraft                 Boolean   @default(false)
+  isActive                Boolean   @default(false)
+  hasTrainingContent      Boolean   @default(true)
+  mustCompleteContent     Boolean   @default(true)
+  hasExam                 Boolean   @default(true)
+  hasCertificate          Boolean   @default(false)
+  hasAttendanceForm       Boolean   @default(false)
+  passingScore            Int       @default(70)
+  attemptLimit            Int       @default(1)
+  examDurationMinutes     Int       @default(30)
+  shuffleQuestions        Boolean   @default(false)
+  shuffleOptions          Boolean   @default(false)
+  showCorrectAnswers      Boolean   @default(false)
+  certificateMinimumScore Int?
+  coverImageUrl           String?
+  createdById             String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  createdBy   User                 @relation("TrainingCreator", fields: [createdById], references: [id])
+  assignments TrainingAssignment[]
+  contents    TrainingContent[]
+  questions   Question[]
+  documents   TrainingDocument[]
+
+  @@index([createdById])
+  @@index([isActive, isDraft])
+}
+
+model TrainingAssignment {
+  id                 String    @id @default(uuid())
+  trainingId         String
+  userId             String
+  assignedById       String
+  assignedAt         DateTime  @default(now())
+  dueDate            DateTime?
+  startedAt          DateTime?
+  contentCompletedAt DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  status             TrainingAssignmentStatus @default(ASSIGNED)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  training        Training                  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  user            User                      @relation("AssignedUser", fields: [userId], references: [id])
+  assignedBy      User                      @relation("AssignmentCreator", fields: [assignedById], references: [id])
+  contentProgress TrainingContentProgress[]
+  attempts        ExamAttempt[]
+  documents       TrainingDocument[]
+
+  @@unique([trainingId, userId])
+  @@index([userId])
+  @@index([assignedById])
+}
+
+enum TrainingAssignmentStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+
+enum TrainingContentType {
+  VIDEO
+  PDF
+  IMAGE
+  LINK
+}
+
+enum QuestionType {
+  SINGLE
+  MULTIPLE
+}
+
+model TrainingContent {
+  id          String              @id @default(uuid())
+  trainingId  String
+  type        TrainingContentType
+  title       String
+  fileUrl     String?
+  externalUrl String?
+  order           Int
+  isRequired      Boolean             @default(true)
+  durationSeconds Int?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  training Training                  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  progress TrainingContentProgress[]
+
+  @@unique([trainingId, order])
+  @@index([trainingId])
+}
+
+model Question {
+  id          String       @id @default(uuid())
+  trainingId  String
+  text        String
+  explanation String?
+  type        QuestionType @default(SINGLE)
+  points      Int          @default(10)
+  order       Int
+  imageUrl    String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  training Training     @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  options  QuestionOption[]
+  answers  ExamAnswer[]
+
+  @@unique([trainingId, order])
+  @@index([trainingId])
+}
+
+model QuestionOption {
+  id         String  @id @default(uuid())
+  questionId String
+  text       String
+  order      Int
+  isCorrect  Boolean @default(false)
+
+  question          Question           @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedInAnswers ExamAnswerOption[]
+
+  @@unique([questionId, order])
+  @@index([questionId])
+}
+
+model TrainingContentProgress {
+  id                  String    @id @default(uuid())
+  assignmentId        String
+  contentId           String
+  startedAt           DateTime?
+  completedAt         DateTime?
+  lastPositionSeconds Int       @default(0)
+  watchedSeconds      Int       @default(0)
+  isCompleted         Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  assignment TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  content    TrainingContent    @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, contentId])
+  @@index([contentId])
+}
+
+enum ExamAttemptStatus {
+  IN_PROGRESS
+  PASSED
+  FAILED
+  TIMED_OUT
+}
+
+model ExamAttempt {
+  id              String            @id @default(uuid())
+  assignmentId    String
+  attemptNumber   Int
+  status          ExamAttemptStatus @default(IN_PROGRESS)
+  startedAt       DateTime          @default(now())
+  submittedAt     DateTime?
+  expiresAt       DateTime?
+  durationSeconds Int?
+  totalPoints     Int?
+  score           Int?
+  passed          Boolean?
+  correctCount    Int?
+  wrongCount      Int?
+  unansweredCount Int?
+  questionOrder   Json?
+  optionOrder     Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  assignment TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  answers    ExamAnswer[]
+  documents  TrainingDocument[]
+
+  @@unique([assignmentId, attemptNumber])
+  @@index([assignmentId])
+  @@index([status])
+}
+
+model ExamAnswer {
+  id            String   @id @default(uuid())
+  attemptId     String
+  questionId    String
+  isCorrect     Boolean?
+  earnedPoints  Int      @default(0)
+  answeredAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  attempt         ExamAttempt        @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question        Question           @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptions ExamAnswerOption[]
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+model ExamAnswerOption {
+  answerId String
+  optionId String
+
+  answer ExamAnswer     @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  option QuestionOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@id([answerId, optionId])
+  @@index([optionId])
+}
+
+enum TrainingDocumentType {
+  BLANK_EXAM
+  PARTICIPANT_ANSWER
+  SIGNED_EXAM
+  ATTENDANCE_FORM
+  SIGNED_ATTENDANCE_FORM
+  OSGB_CERTIFICATE
+  TRAINING_COVER
+  TRAINING_CONTENT
+  QUESTION_IMAGE
+  PARTICIPANT_LIST
+  RESULTS_REPORT
+  OTHER
+}
+
+enum TrainingDocumentStatus {
+  DRAFT
+  AWAITING_SIGNATURE
+  SIGNED
+  ARCHIVED
+}
+
+model TrainingDocument {
+  id           String                 @id @default(uuid())
+  employeeId   String?
+  trainingId   String
+  assignmentId String?
+  attemptId    String?
+  uploadedById String?
+  type         TrainingDocumentType
+  status       TrainingDocumentStatus @default(ARCHIVED)
+  title        String
+  originalName String
+  storedName   String
+  mimeType     String
+  sizeBytes    Int
+  filePath     String
+  checksumSha256 String?
+  documentDate DateTime?
+  isGenerated  Boolean                @default(false)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  employee   User?               @relation("DocumentEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  uploadedBy User?               @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  training   Training            @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  assignment TrainingAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  attempt    ExamAttempt?        @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, trainingId])
+  @@index([trainingId])
+  @@index([assignmentId])
+  @@index([attemptId])
+  @@index([type, status])
+  @@index([createdAt])
+}
