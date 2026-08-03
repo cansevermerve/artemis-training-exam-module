@@ -105,7 +105,8 @@ export type AttemptQuestion = {
   selectedOptionIds: string[];
   options: Array<{
     id: string;
-    text: string;
+    text: string | null;
+    imageUrl: string | null;
     order: number;
   }>;
 };

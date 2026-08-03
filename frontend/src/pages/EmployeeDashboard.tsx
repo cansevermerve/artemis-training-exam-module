@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle, ClipboardList, Clock, Search } from "lucide-react";
+import { CheckCircle, ChevronLeft, ChevronRight, ClipboardList, Clock, Search } from "lucide-react";
 
 import TestCard, { type TestCardModel } from "../components/TestCard";
-import {
-  apiRequest,
-  getCurrentUserId,
-  requireConfiguredId,
-} from "../lib/api";
+import { apiRequest } from "../lib/api";
 import type { TrainingAssignment } from "../types/api";
 
 function toCardModel(assignment: TrainingAssignment): TestCardModel {
@@ -82,6 +78,9 @@ function EmployeeDashboard() {
   const [errorMessage, setErrorMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("dueDate");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [showAssignedTests, setShowAssignedTests] = useState(true);
 
   useEffect(() => {
@@ -92,12 +91,8 @@ function EmployeeDashboard() {
       setErrorMessage("");
 
       try {
-        const userId = requireConfiguredId(
-          getCurrentUserId(),
-          "VITE_CURRENT_USER_ID"
-        );
         const data = await apiRequest<TrainingAssignment[]>(
-          `/users/${encodeURIComponent(userId)}/assignments`,
+          "/users/me/assignments",
           { signal: controller.signal }
         );
         setAssignments(data);
@@ -123,9 +118,21 @@ function EmployeeDashboard() {
 
   const sortedTests = useMemo(() => {
     const normalizedSearch = searchTerm.toLocaleLowerCase("tr");
-    const filtered = tests.filter((test) =>
-      test.title.toLocaleLowerCase("tr").includes(normalizedSearch)
-    );
+    const filtered = tests.filter((test) => {
+      const matchesSearch = test.title
+        .toLocaleLowerCase("tr")
+        .includes(normalizedSearch);
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "completed" && test.overallCompleted) ||
+        (statusFilter === "pending" &&
+          !test.overallCompleted &&
+          test.status !== "Başarısız" &&
+          test.status !== "Süresi Doldu") ||
+        (statusFilter === "failed" &&
+          (test.status === "Başarısız" || test.status === "Süresi Doldu"));
+      return matchesSearch && matchesStatus;
+    });
 
     return [...filtered].sort((first, second) => {
       if (sortBy === "dueDate") {
@@ -143,7 +150,14 @@ function EmployeeDashboard() {
         new Date(first.assignedAt).getTime()
       );
     });
-  }, [searchTerm, sortBy, tests]);
+  }, [searchTerm, sortBy, statusFilter, tests]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedTests.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedTests = useMemo(
+    () => sortedTests.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [pageSize, safePage, sortedTests]
+  );
 
   const cards = [
     { label: "Toplam Test", value: tests.length, icon: ClipboardList },
@@ -226,25 +240,59 @@ function EmployeeDashboard() {
 
         {showAssignedTests && (
           <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="relative flex-1">
+            <div className="grid gap-3 md:grid-cols-[1fr_160px_150px_120px]">
+              <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Test ara..."
+                  placeholder="Eğitim veya test ara..."
                   value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
+                  onChange={(event) => {
+                    setSearchTerm(event.target.value);
+                    setPage(1);
+                  }}
                   className="w-full rounded-lg border border-gray-200 bg-white px-9 py-2 text-sm text-gray-900 outline-none focus:border-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
 
               <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value);
+                  setPage(1);
+                }}
+                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 outline-none focus:border-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              >
+                <option value="all">Tüm durumlar</option>
+                <option value="pending">Bekleyen</option>
+                <option value="completed">Tamamlanan</option>
+                <option value="failed">Başarısız / süresi dolmuş</option>
+              </select>
+
+              <select
                 value={sortBy}
-                onChange={(event) => setSortBy(event.target.value)}
+                onChange={(event) => {
+                  setSortBy(event.target.value);
+                  setPage(1);
+                }}
                 className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 outline-none focus:border-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="dueDate">Son Tarih</option>
                 <option value="newest">En Yeni</option>
+              </select>
+
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                aria-label="Sayfa başına eğitim"
+              >
+                <option value={5}>5 kayıt</option>
+                <option value={10}>10 kayıt</option>
+                <option value={20}>20 kayıt</option>
               </select>
             </div>
 
@@ -258,9 +306,36 @@ function EmployeeDashboard() {
                   Eşleşen atanmış eğitim bulunamadı.
                 </div>
               ) : (
-                sortedTests.map((test) => <TestCard key={test.id} test={test} />)
+                pagedTests.map((test) => <TestCard key={test.id} test={test} />)
               )}
             </div>
+            {!isLoading && sortedTests.length > 0 && (
+              <div className="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-4 text-xs text-gray-500 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  {(safePage - 1) * pageSize + 1}-
+                  {Math.min(safePage * pageSize, sortedTests.length)} / {sortedTests.length} kayıt
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:opacity-40 dark:border-gray-600"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Önceki
+                  </button>
+                  <span>{safePage} / {totalPages}</span>
+                  <button
+                    type="button"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:opacity-40 dark:border-gray-600"
+                  >
+                    Sonraki <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

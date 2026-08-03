@@ -7,6 +7,9 @@ export type ApiActor = "user" | "admin";
 const AUTH_USER_ID_HEADER = String(
   import.meta.env.VITE_AUTH_USER_ID_HEADER ?? "x-user-id"
 ).trim().toLowerCase() || "x-user-id";
+const AUTH_USER_EMAIL_HEADER = String(
+  import.meta.env.VITE_AUTH_USER_EMAIL_HEADER ?? "x-user-email"
+).trim().toLowerCase() || "x-user-email";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -27,13 +30,23 @@ export function getCurrentUserId(): string {
 export function getCurrentAdminId(): string {
   return String(import.meta.env.VITE_CURRENT_ADMIN_ID ?? import.meta.env.VITE_CURRENT_USER_ID ?? "").trim();
 }
+export function getCurrentUserEmail(): string {
+  return String(import.meta.env.VITE_CURRENT_USER_EMAIL ?? "").trim();
+}
+export function getCurrentAdminEmail(): string {
+  return String(
+    import.meta.env.VITE_CURRENT_ADMIN_EMAIL ?? import.meta.env.VITE_CURRENT_USER_EMAIL ?? ""
+  ).trim();
+}
 export function requireConfiguredId(id: string, variableName: string): string {
   if (!id) throw new Error(`${variableName} frontend ortam değişkeni tanımlı değil.`);
   return id;
 }
 
-function identityFor(actor: ApiActor): string {
-  return actor === "admin" ? getCurrentAdminId() : getCurrentUserId();
+function identityFor(actor: ApiActor): { id: string; email: string } {
+  return actor === "admin"
+    ? { id: getCurrentAdminId(), email: getCurrentAdminEmail() }
+    : { id: getCurrentUserId(), email: getCurrentUserEmail() };
 }
 
 function normalizedEndpoint(endpoint: string): string {
@@ -50,7 +63,11 @@ function normalizedEndpoint(endpoint: string): string {
 function requestHeaders(init: RequestInit, actor: ApiActor): Headers {
   const headers = new Headers(init.headers);
   const identity = identityFor(actor);
-  if (identity && !headers.has(AUTH_USER_ID_HEADER)) headers.set(AUTH_USER_ID_HEADER, identity);
+  if (identity.id && !headers.has(AUTH_USER_ID_HEADER)) {
+    headers.set(AUTH_USER_ID_HEADER, identity.id);
+  } else if (identity.email && !headers.has(AUTH_USER_EMAIL_HEADER)) {
+    headers.set(AUTH_USER_EMAIL_HEADER, identity.email);
+  }
   if (init.body && !(init.body instanceof FormData) && !(init.body instanceof Blob) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }

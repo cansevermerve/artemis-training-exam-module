@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { ProtectedAssetImage } from "../../components/ProtectedAssetImage";
 import {
   Field,
   FileUploadField,
@@ -9,6 +10,7 @@ import {
   primaryButtonClassName,
   secondaryButtonClassName,
 } from "../../components/admin/TrainingFormPrimitives";
+import { useUnsavedChangesWarning } from "../../hooks/useUnsavedChangesWarning";
 import { adminApiRequest } from "../../lib/api";
 import { getVideoDurationSeconds, uploadTrainingAsset } from "../../services/training-admin.service";
 import {
@@ -55,6 +57,8 @@ type Question = {
   type: QuestionType;
   points: number;
   options: string[];
+  optionImageFiles: Array<File | null>;
+  optionImageUrls: Array<string | null>;
   correctOptionIndexes: number[];
   imageFile: File | null;
   imageUrl?: string | null;
@@ -64,6 +68,8 @@ type Question = {
 type TrainingApiOption = {
   id: string;
   text: string | null;
+  imageUrl: string | null;
+  order: number;
   isCorrect: boolean;
 };
 
@@ -89,6 +95,7 @@ type TrainingApiRecord = {
   startTime: string | null;
   durationMinutes: number | null;
   location: string | null;
+  isDraft: boolean;
   isActive: boolean;
   hasTrainingContent: boolean;
   mustCompleteContent: boolean;
@@ -163,6 +170,8 @@ function createQuestion(): Question {
     type: "single",
     points: 10,
     options: ["", ""],
+    optionImageFiles: [null, null],
+    optionImageUrls: [null, null],
     correctOptionIndexes: [],
     imageFile: null,
     imageUrl: null,
@@ -170,11 +179,21 @@ function createQuestion(): Question {
   };
 }
 
+function optionHasContent(question: Question, optionIndex: number): boolean {
+  return Boolean(
+    question.options[optionIndex]?.trim() ||
+    question.optionImageFiles[optionIndex] ||
+    question.optionImageUrls[optionIndex]
+  );
+}
+
 function isBlankQuestion(question: Question): boolean {
   return (
     !question.text.trim() &&
     !question.explanation.trim() &&
     question.options.every((option) => !option.trim()) &&
+    question.optionImageFiles.every((file) => !file) &&
+    question.optionImageUrls.every((url) => !url) &&
     question.correctOptionIndexes.length === 0 &&
     !question.imageFile &&
     !question.imageUrl
@@ -182,10 +201,14 @@ function isBlankQuestion(question: Question): boolean {
 }
 
 function isPersistableQuestion(question: Question): boolean {
-  const options = question.options.map((option) => option.trim());
-  const nonEmptyOptions = options.filter(Boolean);
+  const optionContentFlags = question.options.map((_, index) =>
+    optionHasContent(question, index)
+  );
+  const normalizedTexts = question.options
+    .map((option) => option.trim().toLocaleLowerCase("tr-TR"))
+    .filter(Boolean);
   const correctIndexesAreValid = question.correctOptionIndexes.every(
-    (index) => Boolean(options[index])
+    (index) => optionContentFlags[index]
   );
   const correctCountIsValid =
     question.type === "single"
@@ -196,9 +219,9 @@ function isPersistableQuestion(question: Question): boolean {
     Boolean(question.text.trim()) &&
     Number.isFinite(question.points) &&
     question.points > 0 &&
-    nonEmptyOptions.length >= 2 &&
-    new Set(nonEmptyOptions.map((option) => option.toLocaleLowerCase("tr-TR"))).size ===
-      nonEmptyOptions.length &&
+    optionContentFlags.length >= 2 &&
+    optionContentFlags.every(Boolean) &&
+    new Set(normalizedTexts).size === normalizedTexts.length &&
     correctIndexesAreValid &&
     correctCountIsValid
   );
@@ -368,6 +391,77 @@ function CreateTestPage() {
   const [isLoadingTraining, setIsLoadingTraining] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [requestError, setRequestError] = useState(recoverySaveError);
+  const [formReady, setFormReady] = useState(!id);
+  const [baselineSnapshot, setBaselineSnapshot] = useState("");
+
+  const formSnapshot = JSON.stringify({
+    title,
+    description,
+    category,
+    trainingKind,
+    trainingFormat,
+    date,
+    startTime,
+    durationHours,
+    durationMinutes,
+    location,
+    isActive,
+    hasTrainingContent,
+    mustCompleteContent,
+    hasExam,
+    hasCertificate,
+    hasAttendanceForm,
+    passingScore,
+    attemptLimit,
+    examDurationMinutes,
+    shuffleQuestions,
+    shuffleOptions,
+    showCorrectAnswersAfterExam,
+    certificateMinimumScore,
+    coverImage: coverImage
+      ? [coverImage.name, coverImage.size, coverImage.lastModified]
+      : null,
+    videoFile: videoFile
+      ? [videoFile.name, videoFile.size, videoFile.lastModified]
+      : null,
+    documentFile: documentFile
+      ? [documentFile.name, documentFile.size, documentFile.lastModified]
+      : null,
+    questions: questions.map((question) => ({
+      text: question.text,
+      explanation: question.explanation,
+      type: question.type,
+      points: question.points,
+      options: question.options,
+      optionImageUrls: question.optionImageUrls,
+      correctOptionIndexes: question.correctOptionIndexes,
+      imageUrl: question.imageUrl ?? null,
+      imageFile: question.imageFile
+        ? [
+            question.imageFile.name,
+            question.imageFile.size,
+            question.imageFile.lastModified,
+          ]
+        : null,
+      optionImageFiles: question.optionImageFiles.map((file) =>
+        file ? [file.name, file.size, file.lastModified] : null
+      ),
+    })),
+  });
+
+  useEffect(() => {
+    if (!formReady || isLoadingTraining || baselineSnapshot) return;
+    const timer = window.setTimeout(() => setBaselineSnapshot(formSnapshot), 0);
+    return () => window.clearTimeout(timer);
+  }, [baselineSnapshot, formReady, formSnapshot, isLoadingTraining]);
+
+  const hasUnsavedChanges =
+    formReady &&
+    !isSaving &&
+    Boolean(baselineSnapshot) &&
+    baselineSnapshot !== formSnapshot;
+
+  useUnsavedChangesWarning(hasUnsavedChanges);
 
   useEffect(() => {
     if (!recoverySaveError) return;
@@ -382,6 +476,8 @@ function CreateTestPage() {
     const controller = new AbortController();
 
     async function loadTraining() {
+      setBaselineSnapshot("");
+      setFormReady(false);
       setIsLoadingTraining(true);
 
       try {
@@ -434,6 +530,12 @@ function CreateTestPage() {
               options: Array.isArray(question.options)
                 ? question.options.map((option) => option.text ?? "")
                 : ["", ""],
+              optionImageFiles: Array.isArray(question.options)
+                ? question.options.map(() => null)
+                : [null, null],
+              optionImageUrls: Array.isArray(question.options)
+                ? question.options.map((option) => option.imageUrl ?? null)
+                : [null, null],
               correctOptionIndexes: Array.isArray(question.options)
                 ? question.options.reduce(
                     (indexes: number[], option, optionIndex: number) => {
@@ -468,6 +570,7 @@ function CreateTestPage() {
         );
       } finally {
         setIsLoadingTraining(false);
+        setFormReady(true);
       }
     }
 
@@ -551,6 +654,8 @@ function CreateTestPage() {
         options: [
           ...sourceQuestion.options,
         ],
+        optionImageFiles: [...sourceQuestion.optionImageFiles],
+        optionImageUrls: [...sourceQuestion.optionImageUrls],
         correctOptionIndexes: [
           ...sourceQuestion.correctOptionIndexes,
         ],
@@ -684,6 +789,8 @@ function CreateTestPage() {
                 ...question.options,
                 "",
               ],
+              optionImageFiles: [...question.optionImageFiles, null],
+              optionImageUrls: [...question.optionImageUrls, null],
             }
           : question
       )
@@ -708,6 +815,12 @@ function CreateTestPage() {
             (_, index) =>
               index !== optionIndex
           );
+        const nextOptionImageFiles = question.optionImageFiles.filter(
+          (_, index) => index !== optionIndex
+        );
+        const nextOptionImageUrls = question.optionImageUrls.filter(
+          (_, index) => index !== optionIndex
+        );
 
         const nextCorrectIndexes =
           question.correctOptionIndexes
@@ -724,6 +837,8 @@ function CreateTestPage() {
         return {
           ...question,
           options: nextOptions,
+          optionImageFiles: nextOptionImageFiles,
+          optionImageUrls: nextOptionImageUrls,
           correctOptionIndexes:
             nextCorrectIndexes,
         };
@@ -735,11 +850,7 @@ function CreateTestPage() {
     question: Question,
     optionIndex: number
   ) {
-    if (
-      !question.options[
-        optionIndex
-      ]?.trim()
-    ) {
+    if (!optionHasContent(question, optionIndex)) {
       return;
     }
 
@@ -819,6 +930,18 @@ function CreateTestPage() {
         ),
         question.id
       );
+      question.optionImageFiles.forEach((file, optionIndex) => {
+        append(
+          `${question.id}-option-${optionIndex}`,
+          fileValidationMessage(
+            file,
+            `Soru ${index + 1}, şık ${optionIndex + 1} görseli`,
+            ["image/png", "image/jpeg"],
+            DOCUMENT_UPLOAD_LIMIT_MB
+          ),
+          question.id
+        );
+      });
     });
     return issues;
   }
@@ -939,15 +1062,26 @@ function CreateTestPage() {
           });
         }
 
+        const optionContentFlags = question.options.map((_, optionIndex) =>
+          optionHasContent(question, optionIndex)
+        );
         const normalizedOptions = question.options
-          .map((option) => option.trim())
+          .map((option) => option.trim().toLocaleLowerCase("tr-TR"))
           .filter(Boolean);
 
-        if (normalizedOptions.length < 2) {
+        if (optionContentFlags.length < 2 || optionContentFlags.filter(Boolean).length < 2) {
           issues.push({
             id: `${question.id}-options`,
             questionId: question.id,
-            message: `${questionLabel}: en az 2 dolu şık girilmelidir.`,
+            message: `${questionLabel}: en az 2 şıkta metin veya görsel bulunmalıdır.`,
+          });
+        }
+
+        if (optionContentFlags.some((hasContent) => !hasContent)) {
+          issues.push({
+            id: `${question.id}-options`,
+            questionId: question.id,
+            message: `${questionLabel}: her şıkta metin veya görsel bulunmalıdır.`,
           });
         }
 
@@ -955,7 +1089,7 @@ function CreateTestPage() {
           issues.push({
             id: `${question.id}-duplicate-options`,
             questionId: question.id,
-            message: `${questionLabel}: aynı şık birden fazla kullanılamaz.`,
+            message: `${questionLabel}: aynı metin şıkkı birden fazla kullanılamaz.`,
           });
         }
 
@@ -979,14 +1113,14 @@ function CreateTestPage() {
         }
 
         const hasEmptyCorrectOption = question.correctOptionIndexes.some(
-          (optionIndex) => !question.options[optionIndex]?.trim()
+          (optionIndex) => !optionHasContent(question, optionIndex)
         );
 
         if (hasEmptyCorrectOption) {
           issues.push({
             id: `${question.id}-empty-correct`,
             questionId: question.id,
-            message: `${questionLabel}: boş şık doğru cevap olarak seçilemez.`,
+            message: `${questionLabel}: metin veya görsel içermeyen şık doğru cevap olarak seçilemez.`,
           });
         }
       });
@@ -1104,7 +1238,8 @@ function CreateTestPage() {
                     points: question.points,
                     imageUrl: question.imageUrl ?? null,
                     options: question.options.map((option, optionIndex) => ({
-                      text: option.trim(),
+                      text: option.trim() || null,
+                      imageUrl: question.optionImageUrls[optionIndex] ?? null,
                       order: optionIndex + 1,
                       isCorrect: question.correctOptionIndexes.includes(optionIndex),
                     })),
@@ -1188,6 +1323,34 @@ function CreateTestPage() {
         "x-document-title": encodeURIComponent(`${title.trim()} - Soru ${index + 1} Görseli`),
       });
     }
+
+    for (const [questionIndex, question] of questions.entries()) {
+      const persistedQuestion = training.questions.find(
+        (item) => item.order === questionIndex + 1
+      );
+      if (!persistedQuestion) {
+        throw new Error(`${questionIndex + 1}. soru kaydedildikten sonra bulunamadı.`);
+      }
+
+      for (const [optionIndex, optionImageFile] of question.optionImageFiles.entries()) {
+        if (!optionImageFile) continue;
+        const persistedOption = persistedQuestion.options.find(
+          (option) => option.order === optionIndex + 1
+        );
+        if (!persistedOption) {
+          throw new Error(
+            `${questionIndex + 1}. sorunun ${optionIndex + 1}. şıkkı kaydedildikten sonra bulunamadı.`
+          );
+        }
+        await uploadTrainingAsset(training.id, "option-image", optionImageFile, {
+          "x-question-id": persistedQuestion.id,
+          "x-option-id": persistedOption.id,
+          "x-document-title": encodeURIComponent(
+            `${title.trim()} - Soru ${questionIndex + 1} Şık ${String.fromCharCode(65 + optionIndex)} Görseli`
+          ),
+        });
+      }
+    }
   }
 
   async function handleSave(saveMode: SaveMode) {
@@ -1213,14 +1376,24 @@ function CreateTestPage() {
       if (isEditMode) {
         if (!savedTrainingId) throw new Error("Düzenlenecek eğitim kimliği bulunamadı.");
 
-        // Mevcut eğitimde içerik dosyaları önce bağlanır; yayın doğrulaması daha sonra
-        // güncel içerik kayıtlarını görür. Backend başlanmış eğitimleri zaten kilitler.
+        // Mevcut eğitimde içerik dosyaları önce bağlanır. Yeni soru/şık görselleri
+        // gerçek soru ve şık ID'leri gerektirdiğinden, görsel varsa kayıt önce
+        // güvenli taslak olarak güncellenir; upload tamamlanınca yeniden yayınlanır.
         workingContents = await uploadContentFiles(savedTrainingId, workingContents);
+        const hasPendingQuestionAssets = questions.some(
+          (question) =>
+            Boolean(question.imageFile) ||
+            question.optionImageFiles.some((file) => Boolean(file))
+        );
+        const initialStatus =
+          requestedStatus === "published" && hasPendingQuestionAssets
+            ? "draft"
+            : requestedStatus;
         savedTraining = await adminApiRequest<TrainingApiRecord>(
           `/trainings/${encodeURIComponent(savedTrainingId)}`,
           {
             method: "PUT",
-            body: JSON.stringify(buildPayload(requestedStatus, true)),
+            body: JSON.stringify(buildPayload(initialStatus, true)),
           }
         );
       } else {
@@ -1237,13 +1410,13 @@ function CreateTestPage() {
 
       await uploadVisualAssets(savedTraining);
 
-      if (!isEditMode && requestedStatus === "published") {
+      if (requestedStatus === "published" && savedTraining.isDraft) {
         savedTraining = await adminApiRequest<TrainingApiRecord>(
           `/trainings/${encodeURIComponent(savedTrainingId)}`,
           {
             method: "PUT",
-            // Soru ve içerikler artık DB'de gerçek ID/URL'leriyle bulunduğundan
-            // ikinci çağrı yalnızca yayın durumunu ve ayarları günceller.
+            // Soru, şık ve içerik varlıkları artık DB'de gerçek ID/URL'leriyle
+            // bulunduğundan ikinci çağrı yalnızca yayını ve ayarları etkinleştirir.
             body: JSON.stringify(buildPayload("published", false)),
           }
         );
@@ -1259,13 +1432,25 @@ function CreateTestPage() {
       setVideoFile(null);
       setDocumentFile(null);
       setQuestions((current) =>
-        current.map((question, index) => ({
-          ...question,
-          id: savedTraining.questions[index]?.id ?? question.id,
-          imageFile: null,
-          imageUrl: savedTraining.questions[index]?.imageUrl ?? question.imageUrl ?? null,
-        }))
+        current.map((question, index) => {
+          const savedQuestion = savedTraining.questions[index];
+          const savedOptions = savedQuestion?.options ?? [];
+          return {
+            ...question,
+            id: savedQuestion?.id ?? question.id,
+            imageFile: null,
+            imageUrl: savedQuestion?.imageUrl ?? question.imageUrl ?? null,
+            optionImageFiles: question.options.map(() => null),
+            optionImageUrls: question.options.map(
+              (_, optionIndex) =>
+                savedOptions[optionIndex]?.imageUrl ??
+                question.optionImageUrls[optionIndex] ??
+                null
+            ),
+          };
+        })
       );
+      setBaselineSnapshot("");
       setSaveStatus(saveMode === "draft" ? "draft" : "success");
 
       if (saveMode === "save-and-assign") {
@@ -1347,6 +1532,11 @@ function CreateTestPage() {
               ? "Mevcut eğitimin içerik, sınav, başarı ve belge ayarlarını güncelleyin."
               : "Eğitim içeriğini, zorunlu tamamlama akışını, sınavı ve sertifikayı tek ekrandan hazırlayın. Katılımcı seçimi kayıttan sonraki ayrı adımda yapılır."}
           </p>
+          {hasUnsavedChanges && (
+            <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+              <AlertCircle className="h-3.5 w-3.5" /> Kaydedilmemiş değişiklikler
+            </p>
+          )}
         </div>
 
         <button
@@ -2326,10 +2516,8 @@ function CreateTestPage() {
                               </p>
 
                               <p className="mt-1 text-xs text-gray-400">
-                                Doğru cevap
-                                düğmesi yalnızca
-                                dolu şıklarda
-                                kullanılabilir.
+                                Her şık metin, görsel veya ikisini birlikte içerebilir.
+                                Doğru cevap düğmesi içerik bulunan şıklarda kullanılabilir.
                               </p>
                             </div>
 
@@ -2363,70 +2551,151 @@ function CreateTestPage() {
                                   question.correctOptionIndexes.includes(
                                     optionIndex
                                   );
+                                const optionImageFile =
+                                  question.optionImageFiles[optionIndex] ?? null;
+                                const optionImageUrl =
+                                  question.optionImageUrls[optionIndex] ?? null;
+                                const optionImageInputId =
+                                  `${question.id}-option-${optionIndex}-image`;
 
                                 return (
                                   <div
                                     key={`${question.id}-option-${optionIndex}`}
-                                    className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]"
+                                    id={`${question.id}-option-${optionIndex}`}
+                                    className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]"
                                   >
-                                    <input
-                                      value={
-                                        option
-                                      }
-                                      onChange={(
-                                        event
-                                      ) => {
-                                        const nextOptions =
-                                          [
-                                            ...question.options,
-                                          ];
-
-                                        nextOptions[
-                                          optionIndex
-                                        ] =
-                                          event.target.value;
-
-                                        const nextCorrectIndexes =
-                                          event.target.value.trim()
+                                    <div className="min-w-0 space-y-2">
+                                      <input
+                                        value={option}
+                                        onChange={(event) => {
+                                          const nextOptions = [...question.options];
+                                          nextOptions[optionIndex] = event.target.value;
+                                          const willHaveContent = Boolean(
+                                            event.target.value.trim() ||
+                                            optionImageFile ||
+                                            optionImageUrl
+                                          );
+                                          const nextCorrectIndexes = willHaveContent
                                             ? question.correctOptionIndexes
                                             : question.correctOptionIndexes.filter(
-                                                (
-                                                  index
-                                                ) =>
-                                                  index !==
-                                                  optionIndex
+                                                (index) => index !== optionIndex
                                               );
 
-                                        setQuestions(
-                                          (
-                                            currentQuestions
-                                          ) =>
-                                            currentQuestions.map(
-                                              (
-                                                currentQuestion
-                                              ) =>
-                                                currentQuestion.id ===
-                                                question.id
-                                                  ? {
+                                          setQuestions((currentQuestions) =>
+                                            currentQuestions.map((currentQuestion) =>
+                                              currentQuestion.id === question.id
+                                                ? {
+                                                    ...currentQuestion,
+                                                    options: nextOptions,
+                                                    correctOptionIndexes:
+                                                      nextCorrectIndexes,
+                                                  }
+                                                : currentQuestion
+                                            )
+                                          );
+                                        }}
+                                        className={inputClassName}
+                                        placeholder={`Şık ${optionIndex + 1} metni (görselli şıkta isteğe bağlı)`}
+                                        maxLength={500}
+                                      />
+
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          id={optionImageInputId}
+                                          type="file"
+                                          accept="image/png,image/jpeg"
+                                          className="sr-only"
+                                          onChange={(event) => {
+                                            const file = event.target.files?.[0] ?? null;
+                                            setQuestions((currentQuestions) =>
+                                              currentQuestions.map((currentQuestion) => {
+                                                if (currentQuestion.id !== question.id) {
+                                                  return currentQuestion;
+                                                }
+                                                const nextFiles = [
+                                                  ...currentQuestion.optionImageFiles,
+                                                ];
+                                                nextFiles[optionIndex] = file;
+                                                return {
+                                                  ...currentQuestion,
+                                                  optionImageFiles: nextFiles,
+                                                };
+                                              })
+                                            );
+                                            event.target.value = "";
+                                          }}
+                                        />
+                                        <label
+                                          htmlFor={optionImageInputId}
+                                          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                                        >
+                                          <ImageIcon className="h-4 w-4" />
+                                          {optionImageFile || optionImageUrl
+                                            ? "Şık Görselini Değiştir"
+                                            : "Şık Görseli Ekle"}
+                                        </label>
+
+                                        {(optionImageFile || optionImageUrl) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setQuestions((currentQuestions) =>
+                                                currentQuestions.map(
+                                                  (currentQuestion) => {
+                                                    if (
+                                                      currentQuestion.id !== question.id
+                                                    ) {
+                                                      return currentQuestion;
+                                                    }
+                                                    const nextFiles = [
+                                                      ...currentQuestion.optionImageFiles,
+                                                    ];
+                                                    const nextUrls = [
+                                                      ...currentQuestion.optionImageUrls,
+                                                    ];
+                                                    nextFiles[optionIndex] = null;
+                                                    nextUrls[optionIndex] = null;
+                                                    const nextCorrectIndexes =
+                                                      currentQuestion.options[
+                                                        optionIndex
+                                                      ]?.trim()
+                                                        ? currentQuestion.correctOptionIndexes
+                                                        : currentQuestion.correctOptionIndexes.filter(
+                                                            (index) =>
+                                                              index !== optionIndex
+                                                          );
+                                                    return {
                                                       ...currentQuestion,
-                                                      options:
-                                                        nextOptions,
+                                                      optionImageFiles: nextFiles,
+                                                      optionImageUrls: nextUrls,
                                                       correctOptionIndexes:
                                                         nextCorrectIndexes,
-                                                    }
-                                                  : currentQuestion
-                                            )
-                                        );
-                                      }}
-                                      className={
-                                        inputClassName
-                                      }
-                                      placeholder={`Şık ${
-                                        optionIndex +
-                                        1
-                                      }`}
-                                      maxLength={500}
-                                    />
+                                                    };
+                                                  }
+                                                )
+                                              );
+                                            }}
+                                            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-500 transition hover:bg-red-50 hover:text-red-600 dark:border-gray-700 dark:hover:bg-red-900/20"
+                                          >
+                                            <X className="h-3.5 w-3.5" />
+                                            Görseli Kaldır
+                                          </button>
+                                        )}
+                                      </div>
+
+                                      {optionImageFile && (
+                                        <p className="truncate text-xs text-gray-400">
+                                          {optionImageFile.name}
+                                        </p>
+                                      )}
+                                      <ProtectedAssetImage
+                                        file={optionImageFile}
+                                        endpoint={optionImageUrl}
+                                        actor="admin"
+                                        alt={`Soru ${questions.indexOf(question) + 1}, şık ${optionIndex + 1} görseli`}
+                                        className="max-h-36 max-w-full rounded-lg border border-gray-200 object-contain dark:border-gray-700"
+                                      />
+                                    </div>
 
                                     <button
                                       type="button"
@@ -2436,9 +2705,7 @@ function CreateTestPage() {
                                           optionIndex
                                         )
                                       }
-                                      disabled={
-                                        !option.trim()
-                                      }
+                                      disabled={!optionHasContent(question, optionIndex)}
                                       className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
                                         isCorrect
                                           ? "border-green-200 bg-green-50 text-green-700 dark:border-green-900/40 dark:bg-green-900/20 dark:text-green-400"
@@ -2462,17 +2729,9 @@ function CreateTestPage() {
                                           optionIndex
                                         )
                                       }
-                                      disabled={
-                                        question
-                                          .options
-                                          .length <=
-                                        2
-                                      }
+                                      disabled={question.options.length <= 2}
                                       className="inline-flex min-h-11 items-center justify-center rounded-lg border border-gray-200 px-3 text-gray-500 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 dark:border-gray-700 dark:hover:bg-red-900/20"
-                                      aria-label={`Şık ${
-                                        optionIndex +
-                                        1
-                                      } sil`}
+                                      aria-label={`Şık ${optionIndex + 1} sil`}
                                     >
                                       <Trash2 className="h-4 w-4" />
                                     </button>
@@ -2841,13 +3100,19 @@ function CreateTestPage() {
                                   key={`${question.id}-preview-${optionIndex}`}
                                   className="rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"
                                 >
-                                  {String.fromCharCode(
-                                    65 +
-                                      optionIndex
-                                  )}
-                                  .{" "}
-                                  {option ||
-                                    "Boş şık"}
+                                  <p>
+                                    {String.fromCharCode(65 + optionIndex)}.{" "}
+                                    {option || (optionHasContent(question, optionIndex)
+                                      ? "Görsel şık"
+                                      : "Boş şık")}
+                                  </p>
+                                  <ProtectedAssetImage
+                                    file={question.optionImageFiles[optionIndex] ?? null}
+                                    endpoint={question.optionImageUrls[optionIndex] ?? null}
+                                    actor="admin"
+                                    alt={`Şık ${optionIndex + 1} önizlemesi`}
+                                    className="mt-2 max-h-32 max-w-full rounded-md object-contain"
+                                  />
                                 </div>
                               )
                             )}

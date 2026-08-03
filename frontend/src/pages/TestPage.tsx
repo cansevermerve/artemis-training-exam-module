@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Clock3 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { ProtectedAssetImage } from "../components/ProtectedAssetImage";
 import { useProtectedObjectUrl } from "../hooks/useProtectedObjectUrl";
 import { apiRequest } from "../lib/api";
 import type { ExamAttempt } from "../types/api";
@@ -69,6 +70,7 @@ function TestPage() {
   }, [attempt]);
 
   const currentQuestion = attempt?.questions[currentQuestionIndex];
+  const hasImageOptions = currentQuestion?.options.some((option) => Boolean(option.imageUrl)) ?? false;
   const { url: protectedQuestionImage, error: imageError } = useProtectedObjectUrl(currentQuestion?.imageUrl);
   const unansweredQuestions = useMemo(
     () => attempt?.questions.filter((question) => !(answers[question.id]?.length > 0)) ?? [],
@@ -180,12 +182,50 @@ function TestPage() {
           {protectedQuestionImage && <img src={protectedQuestionImage} alt="Soru görseli" className="mt-4 max-h-80 rounded-lg object-contain" />}
           {imageError && <p className="mt-3 text-xs text-red-600">Soru görseli yüklenemedi: {imageError}</p>}
 
-          <div className="mt-6 space-y-3">
+          <div className={hasImageOptions ? "mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" : "mt-6 space-y-3"}>
             {currentQuestion.options.map((option, index) => {
               const isSelected = (answers[currentQuestion.id] ?? []).includes(option.id);
+              const optionLetter = String.fromCharCode(65 + index);
+              const optionDisabled = savingQuestionIds.has(currentQuestion.id) || remainingSeconds === 0 || isSubmitting;
+
+              if (hasImageOptions) {
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={optionDisabled}
+                    onClick={() => selectOption(option.id)}
+                    className={`flex h-full min-h-44 w-full flex-col rounded-xl border p-3 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${isSelected ? "border-gray-800 bg-gray-800 text-white shadow-sm dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900" : "border-gray-200 bg-white text-gray-800 hover:border-gray-400 hover:shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"}`}
+                  >
+                    <span className="flex min-w-0 items-start gap-2">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? "border-white bg-white text-gray-900 dark:border-gray-800 dark:bg-gray-800 dark:text-white" : "border-gray-300 dark:border-gray-600"}`}>
+                        {optionLetter}
+                      </span>
+                      {option.text && <span className="min-w-0 flex-1 leading-5">{option.text}</span>}
+                    </span>
+
+                    {option.imageUrl && (
+                      <span className={`mt-3 flex min-h-28 w-full flex-1 items-center justify-center rounded-lg p-2 ${isSelected ? "bg-white/95 dark:bg-white" : "bg-gray-50 dark:bg-gray-900/60"}`}>
+                        <ProtectedAssetImage
+                          endpoint={option.imageUrl}
+                          alt={`${optionLetter} şıkkı görseli`}
+                          className="max-h-36 w-full object-contain"
+                          errorClassName="text-xs text-red-600 dark:text-red-400"
+                        />
+                      </span>
+                    )}
+                  </button>
+                );
+              }
+
               return (
-                <button key={option.id} type="button" disabled={savingQuestionIds.has(currentQuestion.id) || remainingSeconds === 0 || isSubmitting} onClick={() => selectOption(option.id)} className={`flex w-full items-center justify-between rounded-xl border p-4 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${isSelected ? "border-gray-800 bg-gray-800 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900" : "border-gray-200 bg-white text-gray-800 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"}`}>
-                  <span className="flex items-center gap-3"><span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? "border-white bg-white/20 dark:border-gray-800 dark:bg-gray-800/10" : "border-gray-300 dark:border-gray-600"}`}>{isSelected ? "●" : String.fromCharCode(65 + index)}</span><span>{option.text}</span></span>
+                <button key={option.id} type="button" disabled={optionDisabled} onClick={() => selectOption(option.id)} className={`flex w-full items-center justify-between rounded-xl border p-4 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${isSelected ? "border-gray-800 bg-gray-800 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900" : "border-gray-200 bg-white text-gray-800 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"}`}>
+                  <span className="flex min-w-0 items-start gap-3">
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? "border-white bg-white text-gray-900 dark:border-gray-800 dark:bg-gray-800 dark:text-white" : "border-gray-300 dark:border-gray-600"}`}>{optionLetter}</span>
+                    <span className="min-w-0 flex-1">
+                      {option.text && <span className="block">{option.text}</span>}
+                    </span>
+                  </span>
                 </button>
               );
             })}

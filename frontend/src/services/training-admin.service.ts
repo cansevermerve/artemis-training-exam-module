@@ -27,7 +27,7 @@ export async function getVideoDurationSeconds(file: File): Promise<number> {
 
 export function uploadTrainingAsset(
   trainingId: string,
-  assetType: "cover" | "content" | "question-image",
+  assetType: "cover" | "content" | "question-image" | "option-image",
   file: File,
   headers: Record<string, string> = {}
 ): Promise<UploadedTrainingAsset> {

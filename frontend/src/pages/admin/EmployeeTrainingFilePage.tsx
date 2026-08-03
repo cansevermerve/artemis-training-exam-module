@@ -12,6 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 
+import { ProtectedAssetImage } from "../../components/ProtectedAssetImage";
 import {
   adminApiRequest,
   downloadProtectedDocument,
@@ -44,7 +45,8 @@ type FileAttempt = {
       order: number;
       options: Array<{
         id: string;
-        text: string;
+        text: string | null;
+        imageUrl: string | null;
         order: number;
         isCorrect: boolean;
       }>;
@@ -110,6 +112,42 @@ function documentLabel(type: PersonalDocument["type"]): string {
   if (type === "SIGNED_EXAM") return "İmzalı Sınav";
   if (type === "OSGB_CERTIFICATE") return "OSGB Sertifikası";
   return "Diğer Çalışan Belgesi";
+}
+
+type AnswerDisplayOption = FileAttempt["answers"][number]["question"]["options"][number];
+
+function AnswerOptionItems({
+  options,
+  emptyLabel,
+}: {
+  options: AnswerDisplayOption[];
+  emptyLabel: string;
+}) {
+  if (options.length === 0) {
+    return <span>{emptyLabel}</span>;
+  }
+
+  return (
+    <span className="mt-1 block space-y-2">
+      {options.map((option) => (
+        <span
+          key={option.id}
+          className="block rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+        >
+          <span className="block">
+            {String.fromCharCode(64 + option.order)}.{" "}
+            {option.text || (option.imageUrl ? "Görsel şık" : "Metin bulunmuyor")}
+          </span>
+          <ProtectedAssetImage
+            endpoint={option.imageUrl}
+            actor="admin"
+            alt={`${String.fromCharCode(64 + option.order)} şıkkı görseli`}
+            className="mt-2 max-h-40 max-w-full rounded-md object-contain"
+          />
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function EmployeeTrainingFilePage() {
@@ -532,13 +570,15 @@ function EmployeeTrainingFilePage() {
                         </summary>
                         <div className="divide-y divide-gray-100 border-t border-gray-200 dark:divide-gray-700 dark:border-gray-700">
                           {attempt.answers.map((answer) => {
-                            const selectedIds = new Set(answer.selectedOptions.map((option) => option.optionId));
-                            const selectedTexts = answer.question.options
-                              .filter((option) => selectedIds.has(option.id))
-                              .map((option) => option.text);
-                            const correctTexts = answer.question.options
-                              .filter((option) => option.isCorrect)
-                              .map((option) => option.text);
+                            const selectedIds = new Set(
+                              answer.selectedOptions.map((option) => option.optionId)
+                            );
+                            const selectedOptions = answer.question.options.filter(
+                              (option) => selectedIds.has(option.id)
+                            );
+                            const correctOptions = answer.question.options.filter(
+                              (option) => option.isCorrect
+                            );
                             return (
                               <div key={answer.id} className="p-3 text-sm">
                                 <div className="flex items-start justify-between gap-3">
@@ -546,16 +586,24 @@ function EmployeeTrainingFilePage() {
                                     {answer.question.order}. {answer.question.text}
                                   </p>
                                   <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${answer.isCorrect ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                                    {answer.isCorrect ? "Doğru" : selectedTexts.length ? "Yanlış" : "Boş"}
+                                    {answer.isCorrect ? "Doğru" : selectedOptions.length ? "Yanlış" : "Boş"}
                                   </span>
                                 </div>
-                                <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
-                                  <span className="font-medium">Verilen cevap:</span> {selectedTexts.join(", ") || "Cevap verilmedi"}
-                                </p>
-                                <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
-                                  <span className="font-medium">Doğru cevap:</span> {correctTexts.join(", ")}
-                                </p>
-                                <p className="mt-1 text-xs text-gray-500">
+                                <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                                  <span className="font-medium">Verilen cevap:</span>
+                                  <AnswerOptionItems
+                                    options={selectedOptions}
+                                    emptyLabel="Cevap verilmedi"
+                                  />
+                                </div>
+                                <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                                  <span className="font-medium">Doğru cevap:</span>
+                                  <AnswerOptionItems
+                                    options={correctOptions}
+                                    emptyLabel="Doğru cevap kaydı bulunamadı"
+                                  />
+                                </div>
+                                <p className="mt-2 text-xs text-gray-500">
                                   Kazanılan puan: {answer.earnedPoints}/{answer.question.points}
                                 </p>
                               </div>

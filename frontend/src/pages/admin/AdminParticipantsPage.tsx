@@ -3,19 +3,25 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckSquare,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Eye,
   FileDown,
   FileSignature,
   FileSpreadsheet,
   FileText,
+  PencilLine,
   RefreshCw,
   Save,
+  Search,
   Upload,
   UserRound,
   UsersRound,
 } from "lucide-react";
 
+import { AdminResultCorrectionModal } from "../../components/admin/AdminResultCorrectionModal";
+import { useUnsavedChangesWarning } from "../../hooks/useUnsavedChangesWarning";
 import {
   adminApiRequest,
   downloadProtectedDocument,
@@ -40,6 +46,19 @@ type ParticipantAssignment = {
   documents: DocumentSummary[];
 };
 type ActiveUser = UserSummary & { role?: string | null; isActive: boolean };
+type PaginatedUsers = {
+  items: ActiveUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+type ParticipantStatusFilter =
+  | "ALL"
+  | "PASSED"
+  | "FAILED"
+  | "IN_PROGRESS"
+  | "NOT_STARTED";
 type CommonDocument = DocumentSummary & {
   documentDate?: string | null;
   mimeType?: string;
@@ -49,6 +68,12 @@ function latestAttempt(assignment: ParticipantAssignment) {
   return [...assignment.attempts].sort(
     (left, right) => right.attemptNumber - left.attemptNumber
   )[0];
+}
+
+function latestCompletedAttempt(assignment: ParticipantAssignment) {
+  return [...assignment.attempts]
+    .filter((attempt) => attempt.status !== "IN_PROGRESS")
+    .sort((left, right) => right.attemptNumber - left.attemptNumber)[0];
 }
 
 function attemptLabel(status: ParticipantAttempt["status"]): string {
@@ -84,6 +109,17 @@ function AdminParticipantsPage() {
   const [commonDocuments, setCommonDocuments] = useState<CommonDocument[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [userSearch, setUserSearch] = useState("");
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState("");
+  const [userPage, setUserPage] = useState(1);
+  const [userPageSize, setUserPageSize] = useState(20);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userTotalPages, setUserTotalPages] = useState(1);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [participantSearch, setParticipantSearch] = useState("");
+  const [participantStatus, setParticipantStatus] =
+    useState<ParticipantStatusFilter>("ALL");
+  const [participantPage, setParticipantPage] = useState(1);
+  const [participantPageSize, setParticipantPageSize] = useState(10);
   const [dueDate, setDueDate] = useState("");
   const [signedAttendanceFile, setSignedAttendanceFile] = useState<File | null>(null);
   const [signedAttendanceDate, setSignedAttendanceDate] = useState("");
@@ -92,6 +128,7 @@ function AdminParticipantsPage() {
   const [busy, setBusy] = useState(false);
   const [documentBusy, setDocumentBusy] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState<string | null>(null);
+  const [correctionAttemptId, setCorrectionAttemptId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -104,12 +141,11 @@ function AdminParticipantsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [trainingData, assignmentData, userData, documentData] = await Promise.all([
+      const [trainingData, assignmentData, documentData] = await Promise.all([
         adminApiRequest<Training>(`/trainings/${trainingId}`),
         adminApiRequest<ParticipantAssignment[]>(
           `/trainings/${trainingId}/assignments?includeCancelled=true`
         ),
-        adminApiRequest<ActiveUser[]>("/users"),
         adminApiRequest<CommonDocument[]>(`/trainings/${trainingId}/documents`),
       ]);
       const activeAssignments = assignmentData.filter(
@@ -121,7 +157,6 @@ function AdminParticipantsPage() {
       setTraining(trainingData);
       setAssignments(activeAssignments);
       setArchivedAssignments(cancelledAssignments);
-      setUsers(userData);
       setCommonDocuments(documentData);
       setSelectedUserIds(activeAssignments.map((assignment) => assignment.userId));
     } catch (requestError) {
@@ -139,6 +174,45 @@ function AdminParticipantsPage() {
     const timer = window.setTimeout(() => void loadPage(), 0);
     return () => window.clearTimeout(timer);
   }, [loadPage]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedUserSearch(userSearch.trim());
+      setUserPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [userSearch]);
+
+  const loadUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(userPage),
+        pageSize: String(userPageSize),
+      });
+      if (debouncedUserSearch) params.set("q", debouncedUserSearch);
+      const result = await adminApiRequest<PaginatedUsers>(
+        `/users?${params.toString()}`
+      );
+      setUsers(result.items);
+      setUserTotal(result.total);
+      setUserTotalPages(result.totalPages);
+      if (userPage > result.totalPages) setUserPage(result.totalPages);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Çalışan listesi yüklenemedi."
+      );
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, [debouncedUserSearch, userPage, userPageSize]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadUsers(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadUsers]);
 
   const summary = useMemo(
     () => ({
@@ -178,17 +252,66 @@ function AdminParticipantsPage() {
 
   const participantManagementEnabled = Boolean(training?.isActive && !training?.isDraft);
 
-  const visibleUsers = useMemo(() => {
-    const term = userSearch.trim().toLocaleLowerCase("tr-TR");
-    return users.filter((user) => {
-      if (!term) return true;
-      return `${user.name ?? ""} ${user.email ?? ""} ${user.title ?? ""} ${
-        user.department ?? ""
-      }`
-        .toLocaleLowerCase("tr-TR")
-        .includes(term);
+  const filteredAssignments = useMemo(() => {
+    const term = participantSearch.trim().toLocaleLowerCase("tr-TR");
+    return assignments.filter((assignment) => {
+      const attempt = latestAttempt(assignment);
+      const matchesSearch =
+        !term ||
+        `${assignment.user.name ?? ""} ${assignment.user.email ?? ""} ${
+          assignment.user.department ?? ""
+        } ${assignment.user.title ?? ""}`
+          .toLocaleLowerCase("tr-TR")
+          .includes(term);
+      const matchesStatus =
+        participantStatus === "ALL" ||
+        (participantStatus === "PASSED" &&
+          assignment.attempts.some((item) => item.status === "PASSED")) ||
+        (participantStatus === "FAILED" &&
+          (assignment.status === "FAILED" ||
+            attempt?.status === "FAILED" ||
+            attempt?.status === "TIMED_OUT")) ||
+        (participantStatus === "IN_PROGRESS" &&
+          (assignment.status === "IN_PROGRESS" || attempt?.status === "IN_PROGRESS")) ||
+        (participantStatus === "NOT_STARTED" &&
+          assignment.attempts.length === 0 &&
+          !assignment.contentCompletedAt);
+      return matchesSearch && matchesStatus;
     });
-  }, [userSearch, users]);
+  }, [assignments, participantSearch, participantStatus]);
+
+  const participantTotalPages = Math.max(
+    1,
+    Math.ceil(filteredAssignments.length / participantPageSize)
+  );
+  const safeParticipantPage = Math.min(participantPage, participantTotalPages);
+  const pagedAssignments = useMemo(
+    () =>
+      filteredAssignments.slice(
+        (safeParticipantPage - 1) * participantPageSize,
+        safeParticipantPage * participantPageSize
+      ),
+    [filteredAssignments, participantPageSize, safeParticipantPage]
+  );
+
+  const hasUnsavedChanges =
+    !busy &&
+    !documentBusy &&
+    (selectionChanges.added > 0 ||
+      selectionChanges.removed > 0 ||
+      Boolean(dueDate) ||
+      Boolean(signedAttendanceFile) ||
+      Boolean(signedAttendanceDate));
+  useUnsavedChangesWarning(hasUnsavedChanges);
+
+  function confirmDiscardChanges(): boolean {
+    return (
+      !hasUnsavedChanges ||
+      window.confirm(
+        "Kaydedilmemiş katılımcı veya belge değişiklikleri var. Değişiklikleri silmek istiyor musunuz?"
+      )
+    );
+  }
 
   function toggleUser(userId: string) {
     setSelectedUserIds((current) =>
@@ -325,7 +448,7 @@ function AdminParticipantsPage() {
           </div>
           <button
             type="button"
-            onClick={() => void loadPage()}
+            onClick={() => { if (confirmDiscardChanges()) void loadPage(); }}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           >
             <RefreshCw className="h-4 w-4" /> Yenile
@@ -383,48 +506,96 @@ function AdminParticipantsPage() {
 
           <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_240px]">
             <div>
-              <input
-                value={userSearch}
-                onChange={(event) => setUserSearch(event.target.value)}
-                placeholder="Çalışan ara"
-                className="mb-3 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              />
+              <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_130px]">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    value={userSearch}
+                    onChange={(event) => setUserSearch(event.target.value)}
+                    placeholder="Ad, e-posta, departman veya unvan ara"
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                  />
+                </div>
+                <select
+                  value={userPageSize}
+                  onChange={(event) => {
+                    setUserPageSize(Number(event.target.value));
+                    setUserPage(1);
+                  }}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                  aria-label="Sayfa başına çalışan"
+                >
+                  <option value={10}>10 kişi</option>
+                  <option value={20}>20 kişi</option>
+                  <option value={50}>50 kişi</option>
+                </select>
+              </div>
               <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                {visibleUsers.map((user) => {
-                  const checked = selectedUserIdSet.has(user.id);
-                  return (
-                    <label
-                      key={user.id}
-                      className="flex cursor-pointer items-center gap-3 border-b border-gray-100 px-3 py-3 last:border-b-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900/40"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleUser(user.id)}
-                        disabled={!participantManagementEnabled}
-                        className="h-4 w-4 rounded border-gray-300 disabled:opacity-50"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {user.name ?? user.email ?? user.id}
+                {loadingUsers ? (
+                  <p className="p-6 text-center text-sm text-gray-500">Çalışanlar yükleniyor...</p>
+                ) : (
+                  users.map((user) => {
+                    const checked = selectedUserIdSet.has(user.id);
+                    return (
+                      <label
+                        key={user.id}
+                        className="flex cursor-pointer items-center gap-3 border-b border-gray-100 px-3 py-3 last:border-b-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900/40"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleUser(user.id)}
+                          disabled={!participantManagementEnabled}
+                          className="h-4 w-4 rounded border-gray-300 disabled:opacity-50"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {user.name ?? user.email ?? user.id}
+                          </span>
+                          <span className="block truncate text-xs text-gray-500">
+                            {[user.department, user.title, user.email]
+                              .filter(Boolean)
+                              .join(" · ") || "Çalışan bilgisi bulunmuyor"}
+                          </span>
                         </span>
-                        <span className="block truncate text-xs text-gray-500">
-                          {[user.department, user.title, user.email]
-                            .filter(Boolean)
-                            .join(" · ") || "Çalışan bilgisi bulunmuyor"}
-                        </span>
-                      </span>
-                      {assignedUserIds.has(user.id) && (
-                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                          Kayıtlı
-                        </span>
-                      )}
-                    </label>
-                  );
-                })}
-                {visibleUsers.length === 0 && (
+                        {assignedUserIds.has(user.id) && (
+                          <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                            Kayıtlı
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })
+                )}
+                {!loadingUsers && users.length === 0 && (
                   <p className="p-6 text-center text-sm text-gray-500">Çalışan bulunamadı.</p>
                 )}
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-gray-500">
+                <span>{userTotal} aktif çalışan</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={userPage <= 1 || loadingUsers}
+                    onClick={() => setUserPage((current) => Math.max(1, current - 1))}
+                    className="rounded-lg border border-gray-300 p-1.5 disabled:opacity-40 dark:border-gray-600"
+                    title="Önceki çalışan sayfası"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span>{userPage} / {userTotalPages}</span>
+                  <button
+                    type="button"
+                    disabled={userPage >= userTotalPages || loadingUsers}
+                    onClick={() =>
+                      setUserPage((current) => Math.min(userTotalPages, current + 1))
+                    }
+                    className="rounded-lg border border-gray-300 p-1.5 disabled:opacity-40 dark:border-gray-600"
+                    title="Sonraki çalışan sayfası"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
             <div className="space-y-3">
@@ -458,20 +629,63 @@ function AdminParticipantsPage() {
         </div>
 
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <div className="flex items-center gap-2 border-b border-gray-200 p-5 dark:border-gray-700">
-            <UsersRound className="h-5 w-5" />
-            <div>
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100">Katılımcılar</h2>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Kişiye tıklayınca yalnızca bu eğitime ait sonucu, cevapları, imzalı sınavı ve sertifikası açılır.
-              </p>
+          <div className="border-b border-gray-200 p-5 dark:border-gray-700">
+            <div className="flex items-center gap-2">
+              <UsersRound className="h-5 w-5" />
+              <div>
+                <h2 className="font-semibold text-gray-900 dark:text-gray-100">Katılımcılar</h2>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Kişiye tıklayınca yalnızca bu eğitime ait sonucu, cevapları, imzalı sınavı ve sertifikası açılır.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-[1fr_180px_130px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={participantSearch}
+                  onChange={(event) => {
+                  setParticipantSearch(event.target.value);
+                  setParticipantPage(1);
+                }}
+                  placeholder="Katılımcı adı, e-posta, departman veya unvan ara"
+                  className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                />
+              </div>
+              <select
+                value={participantStatus}
+                onChange={(event) => {
+                  setParticipantStatus(event.target.value as ParticipantStatusFilter);
+                  setParticipantPage(1);
+                }}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              >
+                <option value="ALL">Tüm durumlar</option>
+                <option value="PASSED">Başarılı</option>
+                <option value="FAILED">Başarısız</option>
+                <option value="IN_PROGRESS">Devam ediyor</option>
+                <option value="NOT_STARTED">Başlamadı</option>
+              </select>
+              <select
+                value={participantPageSize}
+                onChange={(event) => {
+                  setParticipantPageSize(Number(event.target.value));
+                  setParticipantPage(1);
+                }}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                aria-label="Sayfa başına katılımcı"
+              >
+                <option value={10}>10 kayıt</option>
+                <option value={25}>25 kayıt</option>
+                <option value={50}>50 kayıt</option>
+              </select>
             </div>
           </div>
           {loading ? (
             <p className="p-8 text-center text-sm text-gray-500">Yükleniyor...</p>
-          ) : assignments.length === 0 ? (
+          ) : filteredAssignments.length === 0 ? (
             <p className="p-8 text-center text-sm text-gray-500">
-              Bu eğitim için henüz katılımcı bulunmuyor.
+              Eşleşen katılımcı bulunmuyor.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -482,12 +696,13 @@ function AdminParticipantsPage() {
                     <th className="px-4 py-3">İçerik</th>
                     <th className="px-4 py-3">Son Deneme</th>
                     <th className="px-4 py-3">Durum</th>
-                    <th className="px-4 py-3 text-right">Kişisel Dosya</th>
+                    <th className="px-4 py-3 text-right">İşlemler</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {assignments.map((assignment) => {
+                  {pagedAssignments.map((assignment) => {
                     const attempt = latestAttempt(assignment);
+                    const completedAttempt = latestCompletedAttempt(assignment);
                     const personalFilePath = `/admin/trainings/${trainingId}/participants/${assignment.userId}`;
                     return (
                       <tr
@@ -530,22 +745,69 @@ function AdminParticipantsPage() {
                           {assignmentLabel(assignment.status)}
                         </td>
                         <td className="px-4 py-4 text-right">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              navigate(personalFilePath);
-                            }}
-                            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200"
-                          >
-                            <UserRound className="h-4 w-4" /> Dosyayı Aç
-                          </button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {completedAttempt && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (confirmDiscardChanges()) {
+                                    setCorrectionAttemptId(completedAttempt.id);
+                                  }
+                                }}
+                                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
+                              >
+                                <PencilLine className="h-4 w-4" /> Sonuç Düzelt
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                navigate(personalFilePath);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200"
+                            >
+                              <UserRound className="h-4 w-4" /> Dosyayı Aç
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+          {filteredAssignments.length > 0 && (
+            <div className="flex flex-col gap-2 border-t border-gray-200 px-4 py-3 text-xs text-gray-500 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {(safeParticipantPage - 1) * participantPageSize + 1}-
+                {Math.min(safeParticipantPage * participantPageSize, filteredAssignments.length)} / {filteredAssignments.length} katılımcı
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={safeParticipantPage <= 1}
+                  onClick={() => setParticipantPage((current) => Math.max(1, current - 1))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:opacity-40 dark:border-gray-600"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Önceki
+                </button>
+                <span>{safeParticipantPage} / {participantTotalPages}</span>
+                <button
+                  type="button"
+                  disabled={safeParticipantPage >= participantTotalPages}
+                  onClick={() =>
+                    setParticipantPage((current) =>
+                      Math.min(participantTotalPages, current + 1)
+                    )
+                  }
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:opacity-40 dark:border-gray-600"
+                >
+                  Sonraki <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           )}
           {archivedAssignments.length > 0 && (
@@ -805,6 +1067,18 @@ function AdminParticipantsPage() {
           </div>
         </div>
       </div>
+      {correctionAttemptId && (
+        <AdminResultCorrectionModal
+          attemptId={correctionAttemptId}
+          onClose={() => setCorrectionAttemptId(null)}
+          onSaved={(successMessage) => {
+            setCorrectionAttemptId(null);
+            setMessage(successMessage);
+            setError(null);
+            void loadPage();
+          }}
+        />
+      )}
     </div>
   );
 }
