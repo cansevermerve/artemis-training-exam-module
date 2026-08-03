@@ -1,8 +1,8 @@
 import {
-  BrowserRouter,
   Navigate,
-  Route,
-  Routes,
+  Outlet,
+  RouterProvider,
+  createBrowserRouter,
 } from "react-router-dom";
 
 import EmployeeDashboard from "./pages/EmployeeDashboard";
@@ -16,37 +16,42 @@ import AttendanceFormPage from "./pages/admin/AttendanceFormPage";
 import CreateTestPage from "./pages/admin/CreateTestPage";
 import EmployeeTrainingFilePage from "./pages/admin/EmployeeTrainingFilePage";
 
+function AppLayout() {
+  return <Outlet />;
+}
+
+const router = createBrowserRouter([
+  {
+    path: "/",
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <EmployeeDashboard /> },
+      { path: "training/:id", element: <TrainingPage /> },
+      { path: "test/:id", element: <TestPage /> },
+      { path: "result/:id", element: <ResultPage /> },
+      { path: "admin/results/:id", element: <ResultPage /> },
+      { path: "admin/trainings", element: <AdminTestPage /> },
+      { path: "admin/trainings/create", element: <CreateTestPage /> },
+      { path: "admin/trainings/:id/edit", element: <CreateTestPage /> },
+      {
+        path: "admin/trainings/:id/participants",
+        element: <AdminParticipantsPage />,
+      },
+      {
+        path: "admin/trainings/:id/attendance-form",
+        element: <AttendanceFormPage />,
+      },
+      {
+        path: "admin/trainings/:id/participants/:employeeId",
+        element: <EmployeeTrainingFilePage />,
+      },
+      { path: "*", element: <Navigate to="/" replace /> },
+    ],
+  },
+]);
+
 function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<EmployeeDashboard />} />
-
-        <Route path="/training/:id" element={<TrainingPage />} />
-        <Route path="/test/:id" element={<TestPage />} />
-        <Route path="/result/:id" element={<ResultPage />} />
-        <Route path="/admin/results/:id" element={<ResultPage />} />
-
-        <Route path="/admin/trainings" element={<AdminTestPage />} />
-        <Route path="/admin/trainings/create" element={<CreateTestPage />} />
-        <Route path="/admin/trainings/:id/edit" element={<CreateTestPage />} />
-        <Route
-          path="/admin/trainings/:id/participants"
-          element={<AdminParticipantsPage />}
-        />
-        <Route
-          path="/admin/trainings/:id/attendance-form"
-          element={<AttendanceFormPage />}
-        />
-        <Route
-          path="/admin/trainings/:id/participants/:employeeId"
-          element={<EmployeeTrainingFilePage />}
-        />
-
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
-  );
+  return <RouterProvider router={router} />;
 }
 
 export default App;
