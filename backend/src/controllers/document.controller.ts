@@ -220,7 +220,7 @@ async function sendDocument(
       "Content-Disposition",
       `${disposition}; filename*=UTF-8''${encodeURIComponent(document.originalName)}`
     );
-    const cacheableAssetTypes = new Set(["TRAINING_COVER", "TRAINING_CONTENT", "QUESTION_IMAGE"]);
+    const cacheableAssetTypes = new Set(["TRAINING_COVER", "TRAINING_CONTENT", "QUESTION_IMAGE", "OPTION_IMAGE"]);
     response.setHeader(
       "Cache-Control",
       cacheableAssetTypes.has(document.type) ? "private, max-age=300" : "private, no-store"

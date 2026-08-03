@@ -36,6 +36,7 @@ model User {
   assignedByRecords TrainingAssignment[] @relation("AssignmentCreator")
   trainingDocuments TrainingDocument[]   @relation("DocumentEmployee")
   uploadedDocuments TrainingDocument[]   @relation("DocumentUploader")
+  examResultAudits ExamResultAudit[]      @relation("ExamResultAuditEditor")
 
   @@map("User")
 }
@@ -172,7 +173,8 @@ model Question {
 model QuestionOption {
   id         String  @id @default(uuid())
   questionId String
-  text       String
+  text       String?
+  imageUrl   String?
   order      Int
   isCorrect  Boolean @default(false)
 
@@ -232,10 +234,40 @@ model ExamAttempt {
   assignment TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   answers    ExamAnswer[]
   documents  TrainingDocument[]
+  resultAudits ExamResultAudit[]
 
   @@unique([assignmentId, attemptNumber])
   @@index([assignmentId])
   @@index([status])
+}
+
+
+model ExamResultAudit {
+  id                      String            @id @default(uuid())
+  attemptId               String
+  editedById              String
+  reason                  String
+  previousStatus          ExamAttemptStatus
+  newStatus               ExamAttemptStatus
+  previousScore           Int?
+  newScore                Int
+  previousPassed          Boolean?
+  newPassed               Boolean
+  previousCorrectCount    Int?
+  newCorrectCount         Int
+  previousWrongCount      Int?
+  newWrongCount           Int
+  previousUnansweredCount Int?
+  newUnansweredCount      Int
+  previousAnswers         Json
+  newAnswers              Json
+  createdAt               DateTime          @default(now())
+
+  attempt  ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  editedBy User        @relation("ExamResultAuditEditor", fields: [editedById], references: [id])
+
+  @@index([attemptId, createdAt])
+  @@index([editedById])
 }
 
 model ExamAnswer {
@@ -278,6 +310,7 @@ enum TrainingDocumentType {
   TRAINING_COVER
   TRAINING_CONTENT
   QUESTION_IMAGE
+  OPTION_IMAGE
   PARTICIPANT_LIST
   RESULTS_REPORT
   OTHER

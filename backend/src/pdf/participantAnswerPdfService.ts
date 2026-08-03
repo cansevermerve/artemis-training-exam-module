@@ -14,7 +14,8 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export interface ParticipantAnswerPdfOption {
   id: string;
-  text: string;
+  text?: string | null;
+  imageUrl?: string | null;
   order: number;
   isCorrect: boolean;
 }
@@ -91,6 +92,10 @@ const IMAGE_MAX_WIDTH = COLUMN_WIDTH - 10;
 const IMAGE_MAX_HEIGHT = 90;
 const IMAGE_TOP_GAP = 3;
 const IMAGE_BOTTOM_GAP = 4;
+const OPTION_IMAGE_MAX_WIDTH = COLUMN_WIDTH - 28;
+const OPTION_IMAGE_MAX_HEIGHT = 72;
+const OPTION_IMAGE_TOP_GAP = 2;
+const OPTION_IMAGE_BOTTOM_GAP = 3;
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -311,7 +316,7 @@ function createOptionLayout(
     columnX + COLUMN_WIDTH - textX
   );
   const textLines = wrapText(
-    option.text,
+    option.text ?? "",
     fonts.regular,
     OPTION_FONT_SIZE,
     maxTextWidth
@@ -351,6 +356,13 @@ function measureQuestionHeight(
     const optionLayout = createOptionLayout(option, index, fonts, 0);
 
     height += optionLayout.textLines.length * LINE_HEIGHT;
+
+    if (option.imageUrl && fs.existsSync(option.imageUrl)) {
+      height +=
+        OPTION_IMAGE_TOP_GAP +
+        OPTION_IMAGE_MAX_HEIGHT +
+        OPTION_IMAGE_BOTTOM_GAP;
+    }
 
     if (index < options.length - 1) {
       height += OPTION_GAP;
@@ -540,7 +552,8 @@ async function drawAnsweredQuestion(
 
   const options = getSortedOptions(question);
 
-  options.forEach((option, index) => {
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
     const optionLayout = createOptionLayout(
       option,
       index,
@@ -564,10 +577,51 @@ async function drawAnsweredQuestion(
       fonts
     );
 
+    if (option.imageUrl) {
+      const embeddedOptionImage = await embedQuestionImage(
+        outputPdf,
+        option.imageUrl
+      );
+
+      if (embeddedOptionImage) {
+        currentTop += OPTION_IMAGE_TOP_GAP;
+
+        const imageSize = getContainedImageSize(
+          embeddedOptionImage,
+          OPTION_IMAGE_MAX_WIDTH,
+          OPTION_IMAGE_MAX_HEIGHT
+        );
+        const imageX =
+          x + OPTION_LEFT_GUTTER + 13 +
+          (OPTION_IMAGE_MAX_WIDTH - imageSize.width) / 2;
+        const imageY = topToPdfY(currentTop + imageSize.height);
+
+        page.drawImage(embeddedOptionImage, {
+          x: imageX,
+          y: imageY,
+          width: imageSize.width,
+          height: imageSize.height,
+        });
+
+        if (option.isCorrect) {
+          page.drawRectangle({
+            x: imageX - 1.5,
+            y: imageY - 1.5,
+            width: imageSize.width + 3,
+            height: imageSize.height + 3,
+            borderColor: CORRECT_HIGHLIGHT,
+            borderWidth: 2,
+          });
+        }
+
+        currentTop += imageSize.height + OPTION_IMAGE_BOTTOM_GAP;
+      }
+    }
+
     if (index < options.length - 1) {
       currentTop += OPTION_GAP;
     }
-  });
+  }
 
   return currentTop + QUESTION_BOTTOM_GAP;
 }

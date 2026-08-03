@@ -1,6 +1,14 @@
 --- a/backend/prisma/schema.prisma
 +++ b/backend/prisma/schema.prisma
-@@ -65,6 +65,7 @@
+@@ -36,6 +36,7 @@
+   assignedByRecords TrainingAssignment[] @relation("AssignmentCreator")
+   trainingDocuments TrainingDocument[]   @relation("DocumentEmployee")
+   uploadedDocuments TrainingDocument[]   @relation("DocumentUploader")
++  examResultAudits ExamResultAudit[]      @relation("ExamResultAuditEditor")
+ 
+   @@map("User")
+ }
+@@ -65,6 +66,7 @@
    shuffleOptions          Boolean   @default(false)
    showCorrectAnswers      Boolean   @default(false)
    certificateMinimumScore Int?
@@ -8,7 +16,7 @@
    createdById             String
    createdAt               DateTime  @default(now())
    updatedAt               DateTime  @updatedAt
-@@ -89,6 +90,9 @@
+@@ -89,6 +91,9 @@
    startedAt          DateTime?
    contentCompletedAt DateTime?
    completedAt        DateTime?
@@ -17,11 +25,11 @@
 +  status             TrainingAssignmentStatus @default(ASSIGNED)
    createdAt          DateTime  @default(now())
    updatedAt          DateTime  @updatedAt
-
-@@ -104,6 +108,15 @@
+ 
+@@ -104,6 +109,15 @@
    @@index([assignedById])
  }
-
+ 
 +enum TrainingAssignmentStatus {
 +  ASSIGNED
 +  IN_PROGRESS
@@ -34,7 +42,7 @@
  enum TrainingContentType {
    VIDEO
    PDF
-@@ -123,10 +136,11 @@
+@@ -123,10 +137,11 @@
    title       String
    fileUrl     String?
    externalUrl String?
@@ -47,10 +55,20 @@
 +  durationSeconds Int?
 +  createdAt       DateTime            @default(now())
 +  updatedAt       DateTime            @updatedAt
-
+ 
    training Training                  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
    progress TrainingContentProgress[]
-@@ -202,9 +216,16 @@
+@@ -158,7 +173,8 @@
+ model QuestionOption {
+   id         String  @id @default(uuid())
+   questionId String
+-  text       String
++  text       String?
++  imageUrl   String?
+   order      Int
+   isCorrect  Boolean @default(false)
+ 
+@@ -202,15 +218,23 @@
    status          ExamAttemptStatus @default(IN_PROGRESS)
    startedAt       DateTime          @default(now())
    submittedAt     DateTime?
@@ -66,8 +84,47 @@
 +  optionOrder     Json?
    createdAt       DateTime          @default(now())
    updatedAt       DateTime          @updatedAt
-
-@@ -221,8 +242,9 @@
+ 
+   assignment TrainingAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+   answers    ExamAnswer[]
+   documents  TrainingDocument[]
++  resultAudits ExamResultAudit[]
+ 
+   @@unique([assignmentId, attemptNumber])
+   @@index([assignmentId])
+@@ -218,12 +242,41 @@
+ }
+ 
+ 
++model ExamResultAudit {
++  id                      String            @id @default(uuid())
++  attemptId               String
++  editedById              String
++  reason                  String
++  previousStatus          ExamAttemptStatus
++  newStatus               ExamAttemptStatus
++  previousScore           Int?
++  newScore                Int
++  previousPassed          Boolean?
++  newPassed               Boolean
++  previousCorrectCount    Int?
++  newCorrectCount         Int
++  previousWrongCount      Int?
++  newWrongCount           Int
++  previousUnansweredCount Int?
++  newUnansweredCount      Int
++  previousAnswers         Json
++  newAnswers              Json
++  createdAt               DateTime          @default(now())
++
++  attempt  ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
++  editedBy User        @relation("ExamResultAuditEditor", fields: [editedById], references: [id])
++
++  @@index([attemptId, createdAt])
++  @@index([editedById])
++}
++
+ model ExamAnswer {
    id            String   @id @default(uuid())
    attemptId     String
    questionId    String
@@ -77,21 +134,22 @@
 +  answeredAt    DateTime?
    createdAt     DateTime @default(now())
    updatedAt     DateTime @updatedAt
-
-@@ -253,6 +275,11 @@
+ 
+@@ -254,6 +307,12 @@
    ATTENDANCE_FORM
    SIGNED_ATTENDANCE_FORM
    OSGB_CERTIFICATE
 +  TRAINING_COVER
 +  TRAINING_CONTENT
 +  QUESTION_IMAGE
++  OPTION_IMAGE
 +  PARTICIPANT_LIST
 +  RESULTS_REPORT
    OTHER
  }
-
-@@ -265,11 +292,11 @@
-
+ 
+@@ -266,11 +325,11 @@
+ 
  model TrainingDocument {
    id           String                 @id @default(uuid())
 -  employeeId   String
@@ -104,7 +162,7 @@
    type         TrainingDocumentType
    status       TrainingDocumentStatus @default(ARCHIVED)
    title        String
-@@ -278,13 +305,14 @@
+@@ -279,13 +338,14 @@
    mimeType     String
    sizeBytes    Int
    filePath     String
@@ -113,7 +171,7 @@
    isGenerated  Boolean                @default(false)
    createdAt    DateTime               @default(now())
    updatedAt    DateTime               @updatedAt
-
+ 
 -  employee   User                @relation("DocumentEmployee", fields: [employeeId], references: [id])
 -  uploadedBy User                @relation("DocumentUploader", fields: [uploadedById], references: [id])
 +  employee   User?               @relation("DocumentEmployee", fields: [employeeId], references: [id], onDelete: SetNull)

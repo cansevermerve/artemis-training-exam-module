@@ -5,7 +5,8 @@ import { HttpError } from "../utils/http-error.js";
 export type QuestionType = "SINGLE" | "MULTIPLE";
 
 export interface QuestionOptionInput {
-  text: string;
+  text?: string | null;
+  imageUrl?: string | null;
   order: number;
   isCorrect: boolean;
 }
@@ -20,11 +21,14 @@ export interface CreateQuestionInput {
   options: QuestionOptionInput[];
 }
 
-function documentIdFromUrl(value: string | null | undefined): string | null {
+function documentIdFromUrl(
+  value: string | null | undefined,
+  label = "Görsel"
+): string | null {
   if (!value) return null;
   const match = value.match(/^\/documents\/([^/]+)\/preview$/);
   if (!match) {
-    throw new HttpError(400, "Soru görseli yalnızca belge upload endpoint'i üzerinden yüklenebilir.");
+    throw new HttpError(400, `${label} yalnızca belge upload endpoint'i üzerinden yüklenebilir.`);
   }
   return match[1];
 }
@@ -47,13 +51,19 @@ function validateQuestion(input: CreateQuestionInput): CreateQuestionInput {
     throw new HttpError(400, "Her soruda 2-100 arasında cevap seçeneği olmalıdır.");
   }
 
-  const options = input.options.map((option, index) => ({
-    text: option.text?.trim(),
-    order: option.order ?? index + 1,
-    isCorrect: Boolean(option.isCorrect),
-  }));
-  if (options.some((option) => !option.text)) {
-    throw new HttpError(400, "Cevap seçenekleri boş bırakılamaz.");
+  const options = input.options.map((option, index) => {
+    const optionText = option.text?.trim() || null;
+    const imageUrl = option.imageUrl?.trim() || null;
+    if (imageUrl) documentIdFromUrl(imageUrl, "Şık görseli");
+    return {
+      text: optionText,
+      imageUrl,
+      order: option.order ?? index + 1,
+      isCorrect: Boolean(option.isCorrect),
+    };
+  });
+  if (options.some((option) => !option.text && !option.imageUrl)) {
+    throw new HttpError(400, "Her cevap seçeneğinde metin veya görsel bulunmalıdır.");
   }
   if (options.some((option) => !Number.isInteger(option.order) || option.order < 1 || option.order > 10_000)) {
     throw new HttpError(400, "Seçenek sırası 1-10000 aralığında tam sayı olmalıdır.");
@@ -61,9 +71,11 @@ function validateQuestion(input: CreateQuestionInput): CreateQuestionInput {
   if (new Set(options.map((option) => option.order)).size !== options.length) {
     throw new HttpError(400, "Seçenek sıra değerleri benzersiz olmalıdır.");
   }
-  const normalizedTexts = options.map((option) => option.text.toLocaleLowerCase("tr-TR"));
+  const normalizedTexts = options
+    .map((option) => option.text?.toLocaleLowerCase("tr-TR") ?? null)
+    .filter((value): value is string => Boolean(value));
   if (new Set(normalizedTexts).size !== normalizedTexts.length) {
-    throw new HttpError(400, "Aynı soru içinde seçenekler tekrar edemez.");
+    throw new HttpError(400, "Aynı soru içinde metin seçenekleri tekrar edemez.");
   }
 
   const correctCount = options.filter((option) => option.isCorrect).length;
@@ -75,7 +87,7 @@ function validateQuestion(input: CreateQuestionInput): CreateQuestionInput {
   }
 
   const imageUrl = input.imageUrl?.trim() || undefined;
-  if (imageUrl) documentIdFromUrl(imageUrl);
+  if (imageUrl) documentIdFromUrl(imageUrl, "Soru görseli");
 
   return {
     ...input,
@@ -87,19 +99,30 @@ function validateQuestion(input: CreateQuestionInput): CreateQuestionInput {
   };
 }
 
-async function assertQuestionImage(
+async function assertQuestionAssets(
   tx: PrismaClientLike,
   trainingId: string,
-  imageUrl: string | undefined
+  questionImageUrl: string | undefined,
+  options: QuestionOptionInput[]
 ): Promise<void> {
-  const documentId = documentIdFromUrl(imageUrl);
-  if (!documentId) return;
-  const document = await tx.trainingDocument.findFirst({
-    where: { id: documentId, trainingId, type: "QUESTION_IMAGE" },
-    select: { id: true },
+  const expected = new Map<string, "QUESTION_IMAGE" | "OPTION_IMAGE">();
+  const questionDocumentId = documentIdFromUrl(questionImageUrl, "Soru görseli");
+  if (questionDocumentId) expected.set(questionDocumentId, "QUESTION_IMAGE");
+  for (const option of options) {
+    const optionDocumentId = documentIdFromUrl(option.imageUrl, "Şık görseli");
+    if (optionDocumentId) expected.set(optionDocumentId, "OPTION_IMAGE");
+  }
+  if (expected.size === 0) return;
+
+  const documents = await tx.trainingDocument.findMany({
+    where: { trainingId, id: { in: [...expected.keys()] } },
+    select: { id: true, type: true },
   });
-  if (!document) {
-    throw new HttpError(400, "Soru görseli bu eğitime ait geçerli bir belge değil.");
+  const actual = new Map(documents.map((document: any) => [document.id, document.type]));
+  for (const [documentId, expectedType] of expected) {
+    if (actual.get(documentId) !== expectedType) {
+      throw new HttpError(400, "Soru veya şık görseli bu eğitime ait geçerli bir belge değil.");
+    }
   }
 }
 
@@ -145,7 +168,7 @@ export async function createQuestion(
     if (training.assignments.some((assignment: { attempts: unknown[] }) => assignment.attempts.length > 0)) {
       throw new HttpError(409, "Sınav denemesi başlamış eğitime yeni soru eklenemez.");
     }
-    await assertQuestionImage(tx, trainingId, validated.imageUrl);
+    await assertQuestionAssets(tx, trainingId, validated.imageUrl, validated.options);
     return tx.question.create({
       data: {
         trainingId,
@@ -169,19 +192,27 @@ export async function updateQuestion(
 ) {
   const prisma = await getPrisma();
   const validated = validateQuestion(input);
-  let previousDocumentId: string | null = null;
+  const previousDocumentIds = new Set<string>();
 
   const updated = await prisma.$transaction(async (tx: PrismaClientLike) => {
     const question = await tx.question.findFirst({
       where: { id: questionId, trainingId },
-      include: { answers: { select: { id: true }, take: 1 } },
+      include: {
+        answers: { select: { id: true }, take: 1 },
+        options: { select: { imageUrl: true } },
+      },
     });
     if (!question) return undefined;
     if (question.answers.length > 0) {
       throw new HttpError(409, "Sınav denemesinde kullanılan soru değiştirilemez.");
     }
-    await assertQuestionImage(tx, trainingId, validated.imageUrl);
-    previousDocumentId = documentIdFromUrl(question.imageUrl);
+    await assertQuestionAssets(tx, trainingId, validated.imageUrl, validated.options);
+    const questionDocumentId = documentIdFromUrl(question.imageUrl, "Soru görseli");
+    if (questionDocumentId) previousDocumentIds.add(questionDocumentId);
+    for (const option of question.options) {
+      const optionDocumentId = documentIdFromUrl(option.imageUrl, "Şık görseli");
+      if (optionDocumentId) previousDocumentIds.add(optionDocumentId);
+    }
     await tx.questionOption.deleteMany({ where: { questionId } });
     return tx.question.update({
       where: { id: questionId },
@@ -198,32 +229,48 @@ export async function updateQuestion(
     });
   });
 
-  const nextDocumentId = documentIdFromUrl(validated.imageUrl);
-  if (previousDocumentId && previousDocumentId !== nextDocumentId) {
-    await deleteDocumentIfUnreferenced(previousDocumentId).catch(() => undefined);
+  const nextDocumentIds = new Set<string>();
+  const nextQuestionDocumentId = documentIdFromUrl(validated.imageUrl, "Soru görseli");
+  if (nextQuestionDocumentId) nextDocumentIds.add(nextQuestionDocumentId);
+  for (const option of validated.options) {
+    const optionDocumentId = documentIdFromUrl(option.imageUrl, "Şık görseli");
+    if (optionDocumentId) nextDocumentIds.add(optionDocumentId);
+  }
+  for (const previousDocumentId of previousDocumentIds) {
+    if (!nextDocumentIds.has(previousDocumentId)) {
+      await deleteDocumentIfUnreferenced(previousDocumentId).catch(() => undefined);
+    }
   }
   return updated;
 }
 
 export async function deleteQuestion(trainingId: string, questionId: string) {
   const prisma = await getPrisma();
-  let imageDocumentId: string | null = null;
+  const imageDocumentIds = new Set<string>();
 
   const deleted = await prisma.$transaction(async (tx: PrismaClientLike) => {
     const question = await tx.question.findFirst({
       where: { id: questionId, trainingId },
-      include: { answers: { select: { id: true }, take: 1 } },
+      include: {
+        answers: { select: { id: true }, take: 1 },
+        options: { select: { imageUrl: true } },
+      },
     });
     if (!question) return undefined;
     if (question.answers.length > 0) {
       throw new HttpError(409, "Sınav denemesinde kullanılan soru silinemez.");
     }
-    imageDocumentId = documentIdFromUrl(question.imageUrl);
+    const questionDocumentId = documentIdFromUrl(question.imageUrl, "Soru görseli");
+    if (questionDocumentId) imageDocumentIds.add(questionDocumentId);
+    for (const option of question.options) {
+      const optionDocumentId = documentIdFromUrl(option.imageUrl, "Şık görseli");
+      if (optionDocumentId) imageDocumentIds.add(optionDocumentId);
+    }
     return tx.question.delete({ where: { id: questionId } });
   });
 
-  if (imageDocumentId) {
-    await deleteDocumentIfUnreferenced(imageDocumentId).catch(() => undefined);
+  for (const documentId of imageDocumentIds) {
+    await deleteDocumentIfUnreferenced(documentId).catch(() => undefined);
   }
   return deleted;
 }

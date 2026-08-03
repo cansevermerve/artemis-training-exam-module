@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { getPrisma } from "../lib/prisma.js";
+import { findActiveUserByEmail } from "../services/user.service.js";
 import { HttpError } from "../utils/http-error.js";
 
 export interface AuthContext {
@@ -57,16 +58,25 @@ async function resolveAuth(request: Request): Promise<AuthContext> {
     );
   }
 
+  const emailHeader =
+    process.env.AUTH_USER_EMAIL_HEADER?.trim().toLowerCase() || "x-user-email";
   const userId = request.header(identityHeader)?.trim();
-  if (!userId) {
-    throw new HttpError(401, `Kimlik doğrulaması için ${identityHeader} header'ı zorunludur.`);
+  const userEmail = request.header(emailHeader)?.trim();
+
+  if (!userId && !userEmail) {
+    throw new HttpError(
+      401,
+      `Kimlik doğrulaması için ${identityHeader} veya ${emailHeader} header'ı zorunludur.`
+    );
   }
 
   const prisma = await getPrisma();
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, role: true, isActive: true },
-  });
+  const user = userId
+    ? await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, isActive: true, email: true },
+      })
+    : await findActiveUserByEmail(userEmail as string);
 
   if (!user || !user.isActive) {
     throw new HttpError(401, "Kullanıcı bulunamadı veya pasif durumda.");
@@ -222,7 +232,7 @@ export function requireDocumentAccess(paramName = "documentId") {
         document.attempt?.assignment.userId === auth.userId;
       if (directlyOwned) return next();
 
-      const sharedTypes = new Set(["TRAINING_COVER", "TRAINING_CONTENT", "QUESTION_IMAGE"]);
+      const sharedTypes = new Set(["TRAINING_COVER", "TRAINING_CONTENT", "QUESTION_IMAGE", "OPTION_IMAGE"]);
       if (!sharedTypes.has(document.type)) {
         throw new HttpError(403, "Bu belgeye erişemezsiniz.");
       }

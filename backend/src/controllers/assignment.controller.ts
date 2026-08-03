@@ -15,6 +15,7 @@ export async function postAssignments(request: Request, response: Response, next
     const trainingId = getStringParam(request, "trainingId");
     const assignments = await createAssignments(trainingId, {
       userIds: request.body?.userIds,
+      userEmails: request.body?.userEmails,
       assignedById: request.auth?.userId ?? "",
       dueDate: request.body?.dueDate,
     });
@@ -27,6 +28,7 @@ export async function putAssignments(request: Request, response: Response, next:
     const trainingId = getStringParam(request, "trainingId");
     const assignments = await syncAssignments(trainingId, {
       userIds: request.body?.userIds,
+      userEmails: request.body?.userEmails,
       assignedById: request.auth?.userId ?? "",
       dueDate: request.body?.dueDate,
     });

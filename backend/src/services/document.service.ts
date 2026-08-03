@@ -20,6 +20,7 @@ export type TrainingDocumentType =
   | "TRAINING_COVER"
   | "TRAINING_CONTENT"
   | "QUESTION_IMAGE"
+  | "OPTION_IMAGE"
   | "PARTICIPANT_LIST"
   | "RESULTS_REPORT"
   | "OTHER";
@@ -61,6 +62,7 @@ const allowedTypes: TrainingDocumentType[] = [
   "TRAINING_COVER",
   "TRAINING_CONTENT",
   "QUESTION_IMAGE",
+  "OPTION_IMAGE",
   "PARTICIPANT_LIST",
   "RESULTS_REPORT",
   "OTHER",
@@ -266,6 +268,19 @@ export async function saveDocument(input: SaveDocumentInput) {
   }
 }
 
+export async function removeStoredDocumentFiles(filePaths: string[]): Promise<void> {
+  await Promise.all(
+    [...new Set(filePaths)].map(async (filePath) => {
+      try {
+        await unlink(absoluteStoragePath(filePath));
+      } catch {
+        // DB kaydı transaction içinde silindi; eksik veya erişilemeyen eski fiziksel
+        // dosya sonuç düzeltme işlemini başarısız saydırmamalıdır.
+      }
+    })
+  );
+}
+
 export async function deleteStoredDocument(documentId: string): Promise<void> {
   const prisma = await getPrisma();
   const document = await prisma.trainingDocument.findUnique({ where: { id: documentId } });
@@ -279,12 +294,13 @@ export async function deleteDocumentIfUnreferenced(documentId: string): Promise<
   const document = await prisma.trainingDocument.findUnique({ where: { id: documentId } });
   if (!document) return;
   const url = `/documents/${documentId}/preview`;
-  const [trainingCount, contentCount, questionCount] = await Promise.all([
+  const [trainingCount, contentCount, questionCount, optionCount] = await Promise.all([
     prisma.training.count({ where: { coverImageUrl: url } }),
     prisma.trainingContent.count({ where: { fileUrl: url } }),
     prisma.question.count({ where: { imageUrl: url } }),
+    prisma.questionOption.count({ where: { imageUrl: url } }),
   ]);
-  if (trainingCount + contentCount + questionCount === 0) {
+  if (trainingCount + contentCount + questionCount + optionCount === 0) {
     await deleteStoredDocument(documentId);
   }
 }
@@ -524,7 +540,7 @@ export async function getParticipantTrainingFile(trainingId: string, employeeId:
                   order: true,
                   options: {
                     orderBy: { order: "asc" },
-                    select: { id: true, text: true, order: true, isCorrect: true },
+                    select: { id: true, text: true, imageUrl: true, order: true, isCorrect: true },
                   },
                 },
               },

@@ -1,11 +1,28 @@
 import { getPrisma, type PrismaClientLike } from "../lib/prisma.js";
 import { readIntegerEnv } from "../utils/env.js";
 import { HttpError, isPrismaKnownRequestError } from "../utils/http-error.js";
+import { resolveActiveUserIdsByEmails } from "./user.service.js";
 
 export interface CreateAssignmentsInput {
-  userIds: unknown[];
+  userIds?: unknown[];
+  userEmails?: unknown[];
   assignedById: string;
   dueDate?: string;
+}
+
+async function resolveAssignmentUserIds(input: CreateAssignmentsInput): Promise<string[]> {
+  const rawIds = input.userIds ?? [];
+  const rawEmails = input.userEmails ?? [];
+  if (!Array.isArray(rawIds) || rawIds.some((id) => typeof id !== "string")) {
+    throw new HttpError(400, "userIds string dizisi olmalıdır.");
+  }
+  if (!Array.isArray(rawEmails) || rawEmails.some((email) => typeof email !== "string")) {
+    throw new HttpError(400, "userEmails string dizisi olmalıdır.");
+  }
+
+  const ids = (rawIds as string[]).map((id) => id.trim()).filter(Boolean);
+  const emailIds = await resolveActiveUserIdsByEmails(rawEmails as string[]);
+  return [...new Set([...ids, ...emailIds])];
 }
 
 function parseDueDate(value: string | undefined): Date | null {
@@ -41,10 +58,7 @@ function targetContents(training: any): any[] {
 
 export async function createAssignments(trainingId: string, input: CreateAssignmentsInput) {
   const prisma = await getPrisma();
-  if (!Array.isArray(input.userIds) || input.userIds.some((id) => typeof id !== "string")) {
-    throw new HttpError(400, "userIds string dizisi olmalıdır.");
-  }
-  const userIds = [...new Set((input.userIds as string[]).map((id) => id.trim()).filter(Boolean))];
+  const userIds = await resolveAssignmentUserIds(input);
   const assignedById = input.assignedById?.trim();
   if (!userIds.length) throw new HttpError(400, "En az bir çalışan seçilmelidir.");
   if (!assignedById) throw new HttpError(400, "Atamayı yapan kullanıcı zorunludur.");
@@ -134,10 +148,7 @@ function restoredAssignmentStatus(assignment: any, attemptLimit: number): "ASSIG
 
 export async function syncAssignments(trainingId: string, input: CreateAssignmentsInput) {
   const prisma = await getPrisma();
-  if (!Array.isArray(input.userIds) || input.userIds.some((id) => typeof id !== "string")) {
-    throw new HttpError(400, "userIds string dizisi olmalıdır.");
-  }
-  const userIds = [...new Set((input.userIds as string[]).map((id) => id.trim()).filter(Boolean))];
+  const userIds = await resolveAssignmentUserIds(input);
   const assignedById = input.assignedById?.trim();
   if (!assignedById) throw new HttpError(400, "Atamayı yapan kullanıcı zorunludur.");
   const dueDate = parseDueDate(input.dueDate);

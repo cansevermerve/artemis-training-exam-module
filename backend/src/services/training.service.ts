@@ -1,6 +1,7 @@
 import { getPrisma, type PrismaClientLike } from "../lib/prisma.js";
 import { deleteDocumentIfUnreferenced, deleteStoredDocument } from "./document.service.js";
 import { HttpError, isPrismaKnownRequestError } from "../utils/http-error.js";
+import { buildPaginatedResult } from "../utils/pagination.js";
 
 export interface TrainingQuestionInput {
   id?: string;
@@ -12,7 +13,8 @@ export interface TrainingQuestionInput {
   imageUrl?: string | null;
   options: Array<{
     id?: string;
-    text: string;
+    text?: string | null;
+    imageUrl?: string | null;
     order?: number;
     isCorrect?: boolean;
   }>;
@@ -86,6 +88,18 @@ function documentIdFromUrl(value: string | null | undefined): string | null {
   return value?.match(/^\/documents\/([^/]+)\/preview$/)?.[1] ?? null;
 }
 
+function normalizeStoredDocumentUrl(
+  value: string | null | undefined,
+  label: string
+): string | null {
+  if (!value?.trim()) return null;
+  const normalized = value.trim();
+  if (!documentIdFromUrl(normalized)) {
+    throw new HttpError(400, `${label} yalnızca belge upload endpoint'i üzerinden yüklenebilir.`);
+  }
+  return normalized;
+}
+
 function parseOptionalDate(value: string | null | undefined): Date | null {
   if (!value) return null;
   const parsed = new Date(value);
@@ -113,7 +127,10 @@ function validateUniqueOrders(items: Array<{ order: number }>, label: string): v
   }
 }
 
-function normalizeQuestion(question: TrainingQuestionInput) {
+function normalizeQuestion(
+  question: TrainingQuestionInput,
+  allowPendingImageUploads: boolean
+) {
   const type = question.type?.toUpperCase();
   if (type !== "SINGLE" && type !== "MULTIPLE") {
     throw new HttpError(400, "Soru tipi SINGLE veya MULTIPLE olmalıdır.");
@@ -125,15 +142,20 @@ function normalizeQuestion(question: TrainingQuestionInput) {
   }
   const correctIndexes = new Set(question.correctOptionIndexes ?? []);
   const options = question.options.map((option, index) => ({
-    text: option.text?.trim(),
+    text: option.text?.trim() || null,
+    imageUrl: normalizeStoredDocumentUrl(option.imageUrl, "Şık görseli"),
     order: clampInteger(option.order, index + 1, 1, 10000, "Seçenek sırası"),
     isCorrect: option.isCorrect ?? correctIndexes.has(index),
   }));
-  if (options.some((option) => !option.text)) throw new HttpError(400, "Soru seçenekleri boş bırakılamaz.");
+  if (!allowPendingImageUploads && options.some((option) => !option.text && !option.imageUrl)) {
+    throw new HttpError(400, "Her şıkta metin veya görsel bulunmalıdır.");
+  }
   validateUniqueOrders(options, "Seçenek");
-  const normalizedTexts = options.map((option) => option.text.toLocaleLowerCase("tr-TR"));
+  const normalizedTexts = options
+    .map((option) => option.text?.toLocaleLowerCase("tr-TR") ?? null)
+    .filter((value): value is string => Boolean(value));
   if (new Set(normalizedTexts).size !== normalizedTexts.length) {
-    throw new HttpError(400, "Aynı soru içinde seçenekler tekrar edemez.");
+    throw new HttpError(400, "Aynı soru içinde metin seçenekleri tekrar edemez.");
   }
   const correctCount = options.filter((option) => option.isCorrect).length;
   if (type === "SINGLE" && correctCount !== 1) {
@@ -148,7 +170,7 @@ function normalizeQuestion(question: TrainingQuestionInput) {
     type,
     points: clampInteger(question.points, 10, 1, 1000, "Soru puanı"),
     order: clampInteger(question.order, 1, 1, 10000, "Soru sırası"),
-    imageUrl: question.imageUrl?.trim() || null,
+    imageUrl: normalizeStoredDocumentUrl(question.imageUrl, "Soru görseli"),
     options,
   };
 }
@@ -212,7 +234,7 @@ function normalizeTrainingInput(input: SaveTrainingInput) {
   const questionsProvided = hasOwn(exam, "questions") || hasOwn(input, "questions");
   const contentsProvided = hasOwn(input, "contents");
   const rawQuestions = exam?.questions ?? input.questions ?? [];
-  const questions = hasExam && questionsProvided ? rawQuestions.map(normalizeQuestion) : [];
+  const questions = hasExam && questionsProvided ? rawQuestions.map((question) => normalizeQuestion(question, isDraft)) : [];
   const contents = hasTrainingContent && contentsProvided ? (input.contents ?? []).map(normalizeContent) : [];
   validateUniqueOrders(questions, "Soru");
   validateUniqueOrders(contents, "İçerik");
@@ -262,7 +284,7 @@ function normalizeTrainingInput(input: SaveTrainingInput) {
 const trainingInclude = {
   contents: { orderBy: { order: "asc" } },
   questions: { orderBy: { order: "asc" }, include: { options: { orderBy: { order: "asc" } } } },
-  documents: { where: { type: { in: ["TRAINING_COVER", "TRAINING_CONTENT", "QUESTION_IMAGE"] } }, orderBy: { createdAt: "desc" } },
+  documents: { where: { type: { in: ["TRAINING_COVER", "TRAINING_CONTENT", "QUESTION_IMAGE", "OPTION_IMAGE"] } }, orderBy: { createdAt: "desc" } },
   _count: { select: { assignments: { where: { cancelledAt: null } }, documents: true } },
 };
 
@@ -275,7 +297,8 @@ function canonicalQuestions(questions: any[]): string {
     order: question.order,
     imageUrl: question.imageUrl ?? null,
     options: [...question.options].sort((a, b) => a.order - b.order).map((option) => ({
-      text: option.text,
+      text: option.text ?? null,
+      imageUrl: option.imageUrl ?? null,
       order: option.order,
       isCorrect: option.isCorrect,
     })),
@@ -318,17 +341,66 @@ async function validatePublishState(tx: PrismaClientLike, trainingId: string): P
   if (training.hasExam && training.questions.some((item: any) => item.options.length < 2)) {
     throw new HttpError(400, "Sınav sorularının en az iki seçeneği olmalıdır.");
   }
+  if (
+    training.hasExam &&
+    training.questions.some((item: any) =>
+      item.options.some((option: any) => !option.text?.trim() && !option.imageUrl)
+    )
+  ) {
+    throw new HttpError(400, "Yayınlanan sınavda her şıkta metin veya görsel bulunmalıdır.");
+  }
   if (training.hasCertificate && !training.hasExam) {
     throw new HttpError(400, "Sertifika akışı sınav olmadan yayınlanamaz.");
   }
 }
 
-export async function getAllTrainings() {
+export interface TrainingListOptions {
+  query?: string;
+  status?: "ALL" | "ACTIVE" | "INACTIVE" | "DRAFT";
+  page: number;
+  pageSize: number;
+}
+
+export async function getAllTrainings(options: TrainingListOptions) {
   const prisma = await getPrisma();
-  return prisma.training.findMany({
-    orderBy: { createdAt: "desc" },
-    include: { _count: { select: { assignments: { where: { cancelledAt: null } }, documents: true } } },
-  });
+  const term = options.query?.trim();
+  const statusWhere =
+    options.status === "ACTIVE"
+      ? { isDraft: false, isActive: true }
+      : options.status === "INACTIVE"
+        ? { isDraft: false, isActive: false }
+        : options.status === "DRAFT"
+          ? { isDraft: true }
+          : {};
+  const where = {
+    ...statusWhere,
+    ...(term
+      ? {
+          OR: [
+            { title: { contains: term, mode: "insensitive" as const } },
+            { category: { contains: term, mode: "insensitive" as const } },
+            { description: { contains: term, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+
+  const [total, items] = await prisma.$transaction([
+    prisma.training.count({ where }),
+    prisma.training.findMany({
+      where,
+      skip: (options.page - 1) * options.pageSize,
+      take: options.pageSize,
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: {
+          select: { assignments: { where: { cancelledAt: null } }, documents: true },
+        },
+      },
+    }),
+  ]);
+
+  return buildPaginatedResult(items, total, options.page, options.pageSize);
 }
 
 export async function getTrainingById(id: string) {
@@ -336,7 +408,36 @@ export async function getTrainingById(id: string) {
   return prisma.training.findUnique({ where: { id }, include: trainingInclude });
 }
 
+async function assertQuestionAssetReferences(
+  tx: PrismaClientLike,
+  trainingId: string,
+  questions: ReturnType<typeof normalizeQuestion>[]
+): Promise<void> {
+  const expected = new Map<string, "QUESTION_IMAGE" | "OPTION_IMAGE">();
+  for (const question of questions) {
+    const questionDocumentId = documentIdFromUrl(question.imageUrl);
+    if (questionDocumentId) expected.set(questionDocumentId, "QUESTION_IMAGE");
+    for (const option of question.options) {
+      const optionDocumentId = documentIdFromUrl(option.imageUrl);
+      if (optionDocumentId) expected.set(optionDocumentId, "OPTION_IMAGE");
+    }
+  }
+  if (expected.size === 0) return;
+
+  const documents = await tx.trainingDocument.findMany({
+    where: { trainingId, id: { in: [...expected.keys()] } },
+    select: { id: true, type: true },
+  });
+  const actual = new Map(documents.map((document: any) => [document.id, document.type]));
+  for (const [documentId, type] of expected) {
+    if (actual.get(documentId) !== type) {
+      throw new HttpError(400, "Soru veya şık görseli bu eğitime ait geçerli bir belge değil.");
+    }
+  }
+}
+
 async function createNestedQuestions(tx: PrismaClientLike, trainingId: string, questions: ReturnType<typeof normalizeQuestion>[]) {
+  await assertQuestionAssetReferences(tx, trainingId, questions);
   for (const question of questions) {
     await tx.question.create({
       data: {
@@ -423,6 +524,10 @@ export async function updateTraining(id: string, input: SaveTrainingInput) {
         for (const question of existing.questions) {
           const documentId = documentIdFromUrl(question.imageUrl);
           if (documentId) possibleOrphanDocumentIds.add(documentId);
+          for (const option of question.options) {
+            const optionDocumentId = documentIdFromUrl(option.imageUrl);
+            if (optionDocumentId) possibleOrphanDocumentIds.add(optionDocumentId);
+          }
         }
         await tx.question.deleteMany({ where: { trainingId: id } });
         await createNestedQuestions(tx, id, normalized.questions);

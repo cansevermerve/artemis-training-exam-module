@@ -13,8 +13,8 @@ await cp(sourceDirectory, targetDirectory, { recursive: true, force: true });
 const copiedFiles = await readdir(targetDirectory);
 const requiredFiles = [
   "exam-template.pdf",
-  "4_İSG_Temel_Eğitim_Katılım_Tutanağı_Kalibre_Format_Nisan_2026_Son_Format.pdf",
-  "5_YÜKSEKTE ÇALIŞMA EĞİTİM KATILIM FORMU.pdf",
+  "isg-attendance-template.pdf",
+  "working-at-height-attendance-template.pdf",
 ];
 const missingFiles = requiredFiles.filter((fileName) => !copiedFiles.includes(fileName));
 if (missingFiles.length > 0) {

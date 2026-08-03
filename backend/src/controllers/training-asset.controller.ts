@@ -10,9 +10,14 @@ import { HttpError } from "../utils/http-error.js";
 import { getOptionalHeader, getRequiredHeader, getStringParam } from "../utils/request.js";
 
 const documentUrl = (id: string) => `/documents/${id}/preview`;
+const IMAGE_ASSET_TYPES = new Set(["question-image", "option-image"]);
 
 function decodeHeader(value: string): string {
-  try { return decodeURIComponent(value); } catch { return value; }
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function bodyBuffer(request: Request): Buffer {
@@ -25,7 +30,9 @@ function bodyBuffer(request: Request): Buffer {
 function parsePositiveInt(value: string | undefined, fallback?: number): number | undefined {
   if (value === undefined || value === "") return fallback;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) throw new HttpError(400, "Sayısal header geçersiz.");
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new HttpError(400, "Sayısal header geçersiz.");
+  }
   return parsed;
 }
 
@@ -33,22 +40,22 @@ function isPdf(buffer: Buffer): boolean {
   return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
 }
 function isPng(buffer: Buffer): boolean {
-  return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+  return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
 }
 function isJpeg(buffer: Buffer): boolean {
   return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
 }
 function isWebp(buffer: Buffer): boolean {
-  return buffer.length >= 12 && buffer.subarray(0,4).toString("ascii") === "RIFF" && buffer.subarray(8,12).toString("ascii") === "WEBP";
+  return buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
 }
 function isMp4(buffer: Buffer): boolean {
-  return buffer.length >= 12 && buffer.subarray(4,8).toString("ascii") === "ftyp";
+  return buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp";
 }
 function isWebm(buffer: Buffer): boolean {
-  return buffer.length >= 4 && buffer.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]));
+  return buffer.length >= 4 && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
 }
 function isOgg(buffer: Buffer): boolean {
-  return buffer.length >= 4 && buffer.subarray(0,4).toString("ascii") === "OggS";
+  return buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "OggS";
 }
 
 function validateAsset(assetType: string, mimeType: string, buffer: Buffer): void {
@@ -58,9 +65,9 @@ function validateAsset(assetType: string, mimeType: string, buffer: Buffer): voi
     }
     return;
   }
-  if (assetType === "question-image") {
+  if (IMAGE_ASSET_TYPES.has(assetType)) {
     if (!["image/png", "image/jpeg"].includes(mimeType) || !(isPng(buffer) || isJpeg(buffer))) {
-      throw new HttpError(400, "Soru görseli PDF uyumluluğu için yalnızca PNG veya JPEG olabilir.");
+      throw new HttpError(400, "Soru ve şık görselleri PDF uyumluluğu için yalnızca PNG veya JPEG olabilir.");
     }
     return;
   }
@@ -99,8 +106,20 @@ async function assertAssetsUnlocked(trainingId: string, includeQuestions: boolea
   if (!training) throw new HttpError(404, "Eğitim bulunamadı.");
   const started = training.assignments.some((item: any) => item.startedAt || item.contentProgress.length || item.attempts.length);
   if (started) {
-    throw new HttpError(409, includeQuestions ? "Sınavı başlamış eğitimde soru görseli değiştirilemez." : "Çalışan tarafından başlanmış eğitimde içerik dosyası değiştirilemez.");
+    throw new HttpError(
+      409,
+      includeQuestions
+        ? "Sınavı başlamış eğitimde soru veya şık görseli değiştirilemez."
+        : "Çalışan tarafından başlanmış eğitimde içerik dosyası değiştirilemez."
+    );
   }
+}
+
+function documentTypeForAsset(assetType: string): TrainingDocumentType {
+  if (assetType === "cover") return "TRAINING_COVER";
+  if (assetType === "content") return "TRAINING_CONTENT";
+  if (assetType === "question-image") return "QUESTION_IMAGE";
+  return "OPTION_IMAGE";
 }
 
 export async function uploadTrainingAsset(
@@ -112,20 +131,19 @@ export async function uploadTrainingAsset(
   try {
     const trainingId = getStringParam(request, "trainingId");
     const assetType = getStringParam(request, "assetType");
-    if (!["cover", "content", "question-image"].includes(assetType)) {
+    if (!["cover", "content", "question-image", "option-image"].includes(assetType)) {
       throw new HttpError(404, "Geçersiz eğitim varlığı türü.");
     }
-    await assertAssetsUnlocked(trainingId, assetType === "question-image");
+    await assertAssetsUnlocked(trainingId, IMAGE_ASSET_TYPES.has(assetType));
     const buffer = bodyBuffer(request);
     const mimeType = (request.header("content-type") ?? "application/octet-stream").split(";")[0].trim().toLowerCase();
     validateAsset(assetType, mimeType, buffer);
     const originalName = decodeHeader(getRequiredHeader(request, "x-file-name"));
     const title = decodeHeader(getOptionalHeader(request, "x-document-title") ?? originalName);
-    const documentType: TrainingDocumentType = assetType === "cover" ? "TRAINING_COVER" : assetType === "content" ? "TRAINING_CONTENT" : "QUESTION_IMAGE";
     const document = await saveDocument({
       trainingId,
       uploadedById: request.auth?.userId ?? null,
-      type: documentType,
+      type: documentTypeForAsset(assetType),
       status: "ARCHIVED",
       title,
       originalName,
@@ -148,6 +166,16 @@ export async function uploadTrainingAsset(
       if (!question) throw new HttpError(404, "Soru bu eğitime ait değil.");
       oldDocumentId = documentIdFromUrl(question.imageUrl);
       data = await prisma.question.update({ where: { id: questionId }, data: { imageUrl: url } });
+    } else if (assetType === "option-image") {
+      const questionId = getRequiredHeader(request, "x-question-id");
+      const optionId = getRequiredHeader(request, "x-option-id");
+      const option = await prisma.questionOption.findFirst({
+        where: { id: optionId, questionId, question: { trainingId } },
+        select: { id: true, imageUrl: true },
+      });
+      if (!option) throw new HttpError(404, "Şık bu eğitimdeki soruya ait değil.");
+      oldDocumentId = documentIdFromUrl(option.imageUrl);
+      data = await prisma.questionOption.update({ where: { id: optionId }, data: { imageUrl: url } });
     } else {
       const kind = getContentKind(mimeType);
       const contentId = getOptionalHeader(request, "x-content-id");

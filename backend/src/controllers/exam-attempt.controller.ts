@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 
 import {
+  correctAttemptResult,
+  getAdminAttemptReview,
   getAttemptById,
   getAttemptResult,
   startAttempt,
@@ -92,3 +94,51 @@ export async function getAttemptResultController(
     next(error);
   }
 }
+export async function getAdminAttemptReviewController(
+  request: Request,
+  response: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const attemptId = getStringParam(request, "attemptId");
+    const review = await getAdminAttemptReview(attemptId);
+    if (!review) {
+      response.status(404).json({
+        success: false,
+        message: "Sınav denemesi bulunamadı.",
+      });
+      return;
+    }
+    response.status(200).json({ success: true, data: review });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function correctAttemptResultController(
+  request: Request,
+  response: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const attemptId = getStringParam(request, "attemptId");
+    const editedById = request.auth?.userId;
+    if (!editedById) {
+      response.status(401).json({
+        success: false,
+        message: "Düzenleyen yönetici kimliği bulunamadı.",
+      });
+      return;
+    }
+    const review = await correctAttemptResult(
+      attemptId,
+      editedById,
+      request.body?.reason,
+      request.body?.answers
+    );
+    response.status(200).json({ success: true, data: review });
+  } catch (error) {
+    next(error);
+  }
+}
+

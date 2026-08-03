@@ -9,7 +9,7 @@ import {
   type ParticipantAnswerPdfInput,
 } from "./participantAnswerPdfService.js";
 
-async function resolveQuestionImage(value: string | null): Promise<string | null> {
+async function resolveStoredImage(value: string | null): Promise<string | null> {
   const match = value?.match(/^\/documents\/([^/]+)\/preview$/);
   if (!match) return value;
   return getDocumentAbsolutePath(match[1]);
@@ -66,13 +66,14 @@ export async function generateParticipantAnswerPdfController(
         id: question.id,
         text: question.text,
         order: question.order,
-        imageUrl: await resolveQuestionImage(question.imageUrl),
-        options: question.options.map((option: any) => ({
+        imageUrl: await resolveStoredImage(question.imageUrl),
+        options: await Promise.all(question.options.map(async (option: any) => ({
           id: option.id,
           text: option.text,
+          imageUrl: await resolveStoredImage(option.imageUrl),
           order: option.order,
           isCorrect: option.isCorrect,
-        })),
+        }))),
       }))),
       answers: attempt.answers.map((answer: any) => ({
         questionId: answer.questionId,

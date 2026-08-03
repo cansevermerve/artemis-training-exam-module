@@ -1,4 +1,5 @@
 import { getPrisma, type PrismaClientLike } from "../lib/prisma.js";
+import { removeStoredDocumentFiles } from "./document.service.js";
 import { readIntegerEnv } from "../utils/env.js";
 import { HttpError, isPrismaKnownRequestError } from "../utils/http-error.js";
 
@@ -68,6 +69,7 @@ function orderAttemptQuestions(attempt: any) {
         options: optionIds.map((id: string) => optionMap.get(id)).filter(Boolean).map((option: any) => ({
           id: option.id,
           text: option.text,
+          imageUrl: option.imageUrl,
           order: option.order,
         })),
       };
@@ -181,6 +183,84 @@ function evaluateAnswers(questions: any[], answerMap: Map<string, string[]>): {
     wrongCount: evaluated.length - correctCount - unansweredCount,
     unansweredCount,
   };
+}
+
+function resultAnswerSnapshot(attempt: any) {
+  return attempt.answers
+    .map((answer: any) => ({
+      questionId: answer.questionId,
+      selectedOptionIds: answer.selectedOptions
+        .map((item: any) => item.optionId)
+        .sort(),
+      isCorrect: answer.isCorrect,
+      earnedPoints: answer.earnedPoints,
+      answeredAt: answer.answeredAt
+        ? new Date(answer.answeredAt).toISOString()
+        : null,
+    }))
+    .sort((left: any, right: any) => left.questionId.localeCompare(right.questionId));
+}
+
+function evaluatedAnswerSnapshot(evaluation: ReturnType<typeof evaluateAnswers>, now: Date) {
+  return evaluation.answers
+    .map((answer) => ({
+      questionId: answer.questionId,
+      selectedOptionIds: [...answer.selectedOptionIds].sort(),
+      isCorrect: answer.isCorrect,
+      earnedPoints: answer.earnedPoints,
+      answeredAt: answer.answered ? now.toISOString() : null,
+    }))
+    .sort((left, right) => left.questionId.localeCompare(right.questionId));
+}
+
+function normalizedCorrectionReason(input: unknown): string {
+  if (typeof input !== "string") {
+    throw new HttpError(400, "Sonuç düzeltme nedeni zorunludur.");
+  }
+  const reason = input.trim();
+  if (reason.length < 10) {
+    throw new HttpError(400, "Sonuç düzeltme nedeni en az 10 karakter olmalıdır.");
+  }
+  if (reason.length > 1000) {
+    throw new HttpError(400, "Sonuç düzeltme nedeni 1000 karakteri aşamaz.");
+  }
+  return reason;
+}
+
+function hasAnswerSelectionChanged(
+  previousAnswers: Array<{ questionId: string; selectedOptionIds: string[] }>,
+  nextAnswers: Array<{ questionId: string; selectedOptionIds: string[] }>
+): boolean {
+  const previousMap = new Map(
+    previousAnswers.map((answer) => [answer.questionId, new Set(answer.selectedOptionIds)])
+  );
+  return nextAnswers.some((answer) => {
+    const previous = previousMap.get(answer.questionId) ?? new Set<string>();
+    return !setsEqual(previous, new Set(answer.selectedOptionIds));
+  });
+}
+
+function adminReviewQuestions(attempt: any) {
+  const selectedByQuestion = persistedAnswerMap(attempt);
+  const ordered = orderAttemptQuestions(attempt);
+  const sourceQuestions = new Map<string, any>(
+    attempt.assignment.training.questions.map((question: any) => [question.id, question])
+  );
+
+  return ordered.map((question: any) => {
+    const sourceQuestion = sourceQuestions.get(question.id);
+    const sourceOptions = new Map<string, any>(
+      sourceQuestion.options.map((option: any) => [option.id, option])
+    );
+    return {
+      ...question,
+      selectedOptionIds: selectedByQuestion.get(question.id) ?? [],
+      options: question.options.map((option: any) => ({
+        ...option,
+        isCorrect: Boolean(sourceOptions.get(option.id)?.isCorrect),
+      })),
+    };
+  });
 }
 
 async function writeEvaluation(
@@ -375,6 +455,240 @@ export async function submitAttempt(attemptId: string, submittedAnswers: unknown
   return getAttemptResult(attemptId);
 }
 
+export async function getAdminAttemptReview(attemptId: string) {
+  const prisma = await getPrisma();
+  const attempt = await prisma.examAttempt.findUnique({
+    where: { id: attemptId },
+    include: {
+      ...attemptInclude,
+      resultAudits: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          editedBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!attempt) return undefined;
+  if (attempt.status === "IN_PROGRESS") {
+    throw new HttpError(409, "Devam eden sınav sonucu düzeltilemez.");
+  }
+
+  return {
+    attemptId: attempt.id,
+    assignmentId: attempt.assignmentId,
+    attemptNumber: attempt.attemptNumber,
+    status: attempt.status,
+    score: attempt.score ?? 0,
+    passed: attempt.passed ?? false,
+    correctCount: attempt.correctCount ?? 0,
+    wrongCount: attempt.wrongCount ?? 0,
+    unansweredCount: attempt.unansweredCount ?? 0,
+    submittedAt: attempt.submittedAt,
+    employee: attempt.assignment.user,
+    training: {
+      id: attempt.assignment.training.id,
+      title: attempt.assignment.training.title,
+      passingScore: attempt.assignment.training.passingScore,
+    },
+    questions: adminReviewQuestions(attempt),
+    audits: attempt.resultAudits.map((audit: any) => ({
+      id: audit.id,
+      reason: audit.reason,
+      previousStatus: audit.previousStatus,
+      newStatus: audit.newStatus,
+      previousScore: audit.previousScore,
+      newScore: audit.newScore,
+      previousPassed: audit.previousPassed,
+      newPassed: audit.newPassed,
+      previousCorrectCount: audit.previousCorrectCount,
+      newCorrectCount: audit.newCorrectCount,
+      previousWrongCount: audit.previousWrongCount,
+      newWrongCount: audit.newWrongCount,
+      previousUnansweredCount: audit.previousUnansweredCount,
+      newUnansweredCount: audit.newUnansweredCount,
+      createdAt: audit.createdAt,
+      editedBy: audit.editedBy,
+    })),
+  };
+}
+
+export async function correctAttemptResult(
+  attemptId: string,
+  editedById: string,
+  reasonInput: unknown,
+  submittedAnswers: unknown
+) {
+  const prisma = await getPrisma();
+  const reason = normalizedCorrectionReason(reasonInput);
+  const normalizedAnswers = normalizeSubmittedAnswers(submittedAnswers);
+  const now = new Date();
+
+  let staleFilePaths: string[] = [];
+  try {
+    const transactionResult = await prisma.$transaction(
+      async (tx: PrismaClientLike) => {
+        const attempt = await tx.examAttempt.findUnique({
+          where: { id: attemptId },
+          include: attemptInclude,
+        });
+        if (!attempt) throw new HttpError(404, "Sınav denemesi bulunamadı.");
+        if (attempt.status === "IN_PROGRESS") {
+          throw new HttpError(409, "Devam eden sınav sonucu düzeltilemez.");
+        }
+        if (attempt.assignment.cancelledAt || attempt.assignment.status === "CANCELLED") {
+          throw new HttpError(409, "Eğitimden çıkarılmış katılımcının sonucu düzeltilemez; önce katılımcıyı yeniden etkinleştirin.");
+        }
+
+        const questions = attempt.assignment.training.questions;
+        const questionIds = new Set<string>(
+          questions.map((question: any) => question.id)
+        );
+        if (normalizedAnswers.length !== questionIds.size) {
+          throw new HttpError(400, "Sonuç düzeltmede sınavdaki bütün sorular gönderilmelidir.");
+        }
+        if (normalizedAnswers.some((answer) => !questionIds.has(answer.questionId))) {
+          throw new HttpError(400, "Düzeltmede sınava ait olmayan bir soru bulundu.");
+        }
+
+        const previousAnswers = resultAnswerSnapshot(attempt);
+        if (!hasAnswerSelectionChanged(previousAnswers, normalizedAnswers)) {
+          throw new HttpError(409, "Cevap seçimlerinde herhangi bir değişiklik yapılmadı.");
+        }
+
+        const answerMap = new Map(
+          normalizedAnswers.map((answer) => [answer.questionId, answer.selectedOptionIds])
+        );
+        const evaluation = evaluateAnswers(questions, answerMap);
+        const newPassed = evaluation.score >= attempt.assignment.training.passingScore;
+        const newStatus = newPassed ? "PASSED" : "FAILED";
+
+        for (const evaluated of evaluation.answers) {
+          const answer = attempt.answers.find(
+            (record: any) => record.questionId === evaluated.questionId
+          );
+          if (!answer) throw new HttpError(409, "Sınav cevap kaydı eksik.");
+          await tx.examAnswerOption.deleteMany({ where: { answerId: answer.id } });
+          await tx.examAnswer.update({
+            where: { id: answer.id },
+            data: {
+              isCorrect: evaluated.isCorrect,
+              earnedPoints: evaluated.earnedPoints,
+              answeredAt: evaluated.answered ? now : null,
+              selectedOptions: evaluated.selectedOptionIds.length
+                ? {
+                    create: evaluated.selectedOptionIds.map((optionId) => ({
+                      optionId,
+                    })),
+                  }
+                : undefined,
+            },
+          });
+        }
+
+        await tx.examAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            status: newStatus,
+            totalPoints: evaluation.totalPoints,
+            score: evaluation.score,
+            passed: newPassed,
+            correctCount: evaluation.correctCount,
+            wrongCount: evaluation.wrongCount,
+            unansweredCount: evaluation.unansweredCount,
+          },
+        });
+
+        await tx.examResultAudit.create({
+          data: {
+            attemptId: attempt.id,
+            editedById,
+            reason,
+            previousStatus: attempt.status,
+            newStatus,
+            previousScore: attempt.score,
+            newScore: evaluation.score,
+            previousPassed: attempt.passed,
+            newPassed,
+            previousCorrectCount: attempt.correctCount,
+            newCorrectCount: evaluation.correctCount,
+            previousWrongCount: attempt.wrongCount,
+            newWrongCount: evaluation.wrongCount,
+            previousUnansweredCount: attempt.unansweredCount,
+            newUnansweredCount: evaluation.unansweredCount,
+            previousAnswers,
+            newAnswers: evaluatedAnswerSnapshot(evaluation, now),
+          },
+        });
+
+        const allAttempts = await tx.examAttempt.findMany({
+          where: { assignmentId: attempt.assignmentId },
+          select: {
+            id: true,
+            status: true,
+            passed: true,
+            submittedAt: true,
+          },
+        });
+        const passedAttempt = allAttempts.find(
+          (record: any) => record.id === attempt.id ? newPassed : record.passed === true || record.status === "PASSED"
+        );
+        const noAttemptsRemain =
+          allAttempts.length >= attempt.assignment.training.attemptLimit;
+        await tx.trainingAssignment.update({
+          where: { id: attempt.assignmentId },
+          data: {
+            status: passedAttempt
+              ? "COMPLETED"
+              : noAttemptsRemain
+                ? "FAILED"
+                : "IN_PROGRESS",
+            completedAt: passedAttempt
+              ? attempt.assignment.completedAt ?? now
+              : null,
+          },
+        });
+
+        const staleDocuments = await tx.trainingDocument.findMany({
+          where: {
+            isGenerated: true,
+            OR: [
+              { attemptId: attempt.id, type: "PARTICIPANT_ANSWER" },
+              {
+                trainingId: attempt.assignment.training.id,
+                type: "RESULTS_REPORT",
+              },
+            ],
+          },
+          select: { id: true, filePath: true },
+        });
+        if (staleDocuments.length > 0) {
+          await tx.trainingDocument.deleteMany({
+            where: { id: { in: staleDocuments.map((document: any) => document.id) } },
+          });
+        }
+
+        return {
+          staleFilePaths: staleDocuments.map((document: any) => document.filePath),
+        };
+      },
+      { isolationLevel: "Serializable" }
+    );
+    staleFilePaths = transactionResult.staleFilePaths;
+  } catch (error) {
+    if (isPrismaKnownRequestError(error, "P2034")) {
+      throw new HttpError(409, "Sonuç düzeltme işlemi eşzamanlı başka bir işlemle çakıştı; yeniden deneyin.");
+    }
+    throw error;
+  }
+
+  await removeStoredDocumentFiles(staleFilePaths);
+  return getAdminAttemptReview(attemptId);
+}
+
 export async function getAttemptResult(attemptId: string) {
   const prisma = await getPrisma();
   const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId }, include: attemptInclude });
@@ -415,6 +729,14 @@ export async function getAttemptResult(attemptId: string) {
       (attempt.score ?? 0) >=
         (attempt.assignment.training.certificateMinimumScore ??
           attempt.assignment.training.passingScore),
-    certificateUrl: certificate ? `/documents/${certificate.id}/preview` : null,
+    certificateUrl:
+      certificate &&
+      attempt.assignment.training.hasCertificate &&
+      (attempt.passed ?? false) &&
+      (attempt.score ?? 0) >=
+        (attempt.assignment.training.certificateMinimumScore ??
+          attempt.assignment.training.passingScore)
+        ? `/documents/${certificate.id}/preview`
+        : null,
   };
 }

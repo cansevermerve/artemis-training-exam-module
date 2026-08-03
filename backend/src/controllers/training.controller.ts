@@ -9,6 +9,7 @@ import {
   type SaveTrainingInput,
 } from "../services/training.service.js";
 import { getStringParam } from "../utils/request.js";
+import { readPagination } from "../utils/pagination.js";
 
 function buildInput(request: Request): SaveTrainingInput {
   return {
@@ -17,8 +18,23 @@ function buildInput(request: Request): SaveTrainingInput {
   } as SaveTrainingInput;
 }
 
-export async function getTrainings(_request: Request, response: Response, next: NextFunction): Promise<void> {
-  try { response.status(200).json({ success: true, data: await getAllTrainings() }); } catch (error) { next(error); }
+export async function getTrainings(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const query = typeof request.query.q === "string" ? request.query.q : undefined;
+    const rawStatus = typeof request.query.status === "string"
+      ? request.query.status.trim().toUpperCase()
+      : "ALL";
+    const status = ["ALL", "ACTIVE", "INACTIVE", "DRAFT"].includes(rawStatus)
+      ? (rawStatus as "ALL" | "ACTIVE" | "INACTIVE" | "DRAFT")
+      : "ALL";
+    const pagination = readPagination(request, { pageSize: 10, maximumPageSize: 100 });
+    response.status(200).json({
+      success: true,
+      data: await getAllTrainings({ query, status, ...pagination }),
+    });
+  } catch (error) {
+    next(error);
+  }
 }
 export async function postTraining(request: Request, response: Response, next: NextFunction): Promise<void> {
   try { response.status(201).json({ success: true, data: await createTraining(buildInput(request)) }); } catch (error) { next(error); }

@@ -22,7 +22,8 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export interface ExamPdfOption {
   id: string;
-  text: string;
+  text?: string | null;
+  imageUrl?: string | null;
   order: number;
 }
 
@@ -167,6 +168,10 @@ const IMAGE_MAX_WIDTH = COLUMN_WIDTH - 10;
 const IMAGE_MAX_HEIGHT = 90;
 const IMAGE_TOP_GAP = 3;
 const IMAGE_BOTTOM_GAP = 4;
+const OPTION_IMAGE_MAX_WIDTH = COLUMN_WIDTH - 26;
+const OPTION_IMAGE_MAX_HEIGHT = 72;
+const OPTION_IMAGE_TOP_GAP = 2;
+const OPTION_IMAGE_BOTTOM_GAP = 3;
 
 const OPTION_LETTERS = [
   "A",
@@ -366,17 +371,26 @@ function measureQuestionHeight(
   const options = getSortedOptions(question);
 
   options.forEach((option, index) => {
-    const letter =
-      OPTION_LETTERS[index] ?? `${index + 1}`;
+    const letter = OPTION_LETTERS[index] ?? `${index + 1}`;
+    const label = option.text?.trim()
+      ? `${letter}) ${option.text}`
+      : `${letter})`;
 
     const optionLines = wrapText(
-      `${letter}) ${option.text}`,
+      label,
       fonts.regular,
       OPTION_FONT_SIZE,
       COLUMN_WIDTH
     );
 
-    height += optionLines.length * LINE_HEIGHT;
+    height += Math.max(1, optionLines.length) * LINE_HEIGHT;
+
+    if (option.imageUrl && fs.existsSync(option.imageUrl)) {
+      height +=
+        OPTION_IMAGE_TOP_GAP +
+        OPTION_IMAGE_MAX_HEIGHT +
+        OPTION_IMAGE_BOTTOM_GAP;
+    }
 
     if (index < options.length - 1) {
       height += OPTION_GAP;
@@ -505,12 +519,15 @@ async function drawQuestion(
 
   const options = getSortedOptions(question);
 
-  options.forEach((option, index) => {
-    const letter =
-      OPTION_LETTERS[index] ?? `${index + 1}`;
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
+    const letter = OPTION_LETTERS[index] ?? `${index + 1}`;
+    const label = option.text?.trim()
+      ? `${letter}) ${option.text}`
+      : `${letter})`;
 
     const optionLines = wrapText(
-      `${letter}) ${option.text}`,
+      label,
       fonts.regular,
       OPTION_FONT_SIZE,
       COLUMN_WIDTH
@@ -518,17 +535,46 @@ async function drawQuestion(
 
     currentTop += drawWrappedTextFromTop(
       page,
-      optionLines,
+      optionLines.length ? optionLines : [{ text: label, width: 0 }],
       x,
       currentTop,
       fonts.regular,
       OPTION_FONT_SIZE
     );
 
+    if (option.imageUrl) {
+      const embeddedOptionImage = await embedQuestionImage(
+        outputPdf,
+        option.imageUrl
+      );
+
+      if (embeddedOptionImage) {
+        currentTop += OPTION_IMAGE_TOP_GAP;
+
+        const imageSize = getContainedImageSize(
+          embeddedOptionImage,
+          OPTION_IMAGE_MAX_WIDTH,
+          OPTION_IMAGE_MAX_HEIGHT
+        );
+
+        const imageX =
+          x + 13 + (OPTION_IMAGE_MAX_WIDTH - imageSize.width) / 2;
+
+        page.drawImage(embeddedOptionImage, {
+          x: imageX,
+          y: topToPdfY(currentTop + imageSize.height),
+          width: imageSize.width,
+          height: imageSize.height,
+        });
+
+        currentTop += imageSize.height + OPTION_IMAGE_BOTTOM_GAP;
+      }
+    }
+
     if (index < options.length - 1) {
       currentTop += OPTION_GAP;
     }
-  });
+  }
 
   return currentTop + QUESTION_BOTTOM_GAP;
 }
