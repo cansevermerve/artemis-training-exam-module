@@ -172,13 +172,24 @@ Devam eden attempt varsa yeni kayıt oluşturmak yerine aynı attempt döndürü
 - Süre sonunda güvenli submit penceresi uygulanır.
 - Geç kalan istekte yalnızca backend'e önceden kaydedilmiş cevaplar değerlendirilir.
 
+### Resimli Şıklar
+
+- Bir şık yalnızca metin, yalnızca görsel veya metin + görsel içerebilir.
+- Metin ve görselin ikisi birden boş bırakılamaz.
+- Şık görselleri PNG veya JPEG olarak korumalı belge storage alanına yüklenir.
+- Görsel, ilgili eğitim + soru + şık kaydıyla doğrulanarak `OPTION_IMAGE` belge türüyle saklanır.
+- Çalışan sınav ekranında görsel şıklar radio/checkbox kartının içinde seçilebilir biçimde gösterilir.
+- Doğru şık bilgisi attempt sırasında frontend'e gönderilmez.
+- Resimli şıklar boş sınav ve katılımcı cevap PDF'lerinde de gösterilir.
+- Başlamış bir sınavın şık metni veya görseli değiştirilemez.
+
 ### Cevap Kaydı
 
 - Her soru attempt içinde tek cevap kaydına sahiptir.
 - Tek seçimli ve çok seçimli cevaplar doğrulanır.
 - Başka soruya ait seçenek gönderilemez.
 - Aynı seçenek tekrar gönderilemez.
-- Tamamlanmış attempt cevapları değiştirilemez.
+- Tamamlanmış attempt cevapları çalışan tarafından değiştirilemez. Yönetici düzeltmeleri yalnızca zorunlu gerekçe ve audit kaydıyla yapılabilir.
 
 ### Submit ve Puanlama
 
@@ -195,6 +206,23 @@ Backend:
 - Assignment durumunu günceller.
 
 Eşzamanlı çift submit işlemleri transaction ve durum kontrolleriyle engellenir.
+
+
+### Yönetici Sonuç Düzeltme ve Audit Akışı
+
+Katılımcılar sayfasında, tamamlanmış sınavı bulunan kişinin satırında **Sonuç Düzelt** işlemi bulunur.
+
+- Yalnızca admin/İK rolü kullanabilir.
+- Devam eden attempt düzenlenemez.
+- Yönetici, öğrencinin seçili cevaplarını değiştirir; doğru cevaplar yalnızca admin ekranında referans olarak gösterilir.
+- En az 10 karakterlik düzeltme gerekçesi zorunludur.
+- Puan, doğru/yanlış/boş sayıları ve başarı durumu backend tarafından yeniden hesaplanır.
+- Yeni attempt oluşturulmaz; öğrencinin aynı attempt'i güncel, düzeltilmiş sonucu temsil eder.
+- Düzeltme öncesi cevaplar ve sonuç metrikleri silinmez; `ExamResultAudit` kaydında JSON snapshot olarak korunur.
+- Audit kaydı; düzenleyen kullanıcıyı, tarihi, gerekçeyi ve eski/yeni puan-durum özetini içerir.
+- Assignment durumu yeni sonuca göre yeniden hesaplanır.
+- Güncelliğini yitiren sistem üretimi cevap PDF'i ve sonuç raporu kayıtları kaldırılır; tekrar üretildiklerinde düzeltilmiş sonucu kullanırlar.
+- Düzeltme sonucunda sertifika uygunluğu kaybolursa çalışanın sonuç ekranında eski sertifika bağlantısı gösterilmez; belge admin arşivinde denetim kaydı olarak kalır.
 
 ### Sonuç Sonrası
 
@@ -257,6 +285,7 @@ Ek davranışlar:
 - Üretilen PDF için `TrainingDocument` kaydı oluşturulur.
 - Soru görselleri güvenli storage üzerinden çözülür.
 - Çoklu cevaplar PDF'te eksiksiz gösterilir.
+- Metinli, görselli ve metin + görsel şıklar PDF çıktılarında ölçeklenerek gösterilir.
 - Katılım formu satır kapasitesi aşılırsa aynı şablonla yeni sayfa oluşturulur.
 - İptal edilmiş atamalar yeni katılım formu ve katılımcı çıktılarında gösterilmez.
 - Build sırasında şablonlar `dist/pdf/templates` dizinine kopyalanır.
@@ -305,6 +334,37 @@ E-posta yalnızca kullanıcıyı bulma aşamasında kullanılır. Assignment, at
 
 Gerçek kullanıcı tablosu ve email kolonunun adı paylaşılmadığı için bu eşleştirmenin şirket DB'sine özgü mapping kısmı production entegrasyonunda tamamlanmalıdır.
 
+## 13A. E-Posta Tabanlı Kimlik Çözümleme
+
+Kimlik katmanı doğrudan kullanıcı ID'sinin yanında eşsiz kurumsal e-posta header'ını da destekler. ID gönderilmemişse backend normalize edilmiş e-posta ile aktif kullanıcıyı bulur ve bundan sonraki bütün ilişkileri bulunan sabit kullanıcı ID'si üzerinden yürütür.
+
+- Varsayılan ID header: `x-user-id`
+- Varsayılan e-posta header: `x-user-email`
+- Frontend çalışan/admin için ayrı ID veya e-posta environment değerleri gönderebilir.
+- Aynı e-postayla birden fazla aktif kullanıcı eşleşirse `409` dönülür.
+- E-postası bulunmayan veya pasif kullanıcı için kimlik doğrulama reddedilir.
+- Assignment servisleri gerektiğinde `userEmails` dizisini de kullanıcı ID'lerine güvenli şekilde çözümleyebilir.
+- Employee dashboard, kullanıcı ID'sini URL'de taşımak yerine kimliği doğrulanmış `/api/users/me/assignments` endpoint'ini kullanır.
+
+Gerçek DB'de kurumsal e-posta kolonunun benzersizliği ve gerçek kolon mapping'i Cenk Bey'in ortamında doğrulanmalıdır.
+
+## 13B. Arama, Filtreleme ve Sayfalama
+
+- Eğitim listesi: backend tabanlı metin araması, aktif/pasif/taslak filtresi ve sayfalama
+- Aktif çalışan listesi: backend tabanlı ad, e-posta, unvan ve departman araması ile sayfalama
+- Katılımcılar: eğitim bağlamında ad/e-posta araması, başarılı/başarısız/devam eden/başlamadı filtresi ve sayfalama
+- Çalışan dashboard'u: eğitim araması, durum filtresi, sıralama ve sayfalama
+
+Liste endpoint'leri `page`, `pageSize`, `q` ve ilgili yerlerde `status` query parametrelerini kabul eder. Sayfa boyutu backend tarafından üst sınırla korunur.
+
+## 13C. Kaydedilmemiş Değişiklik Koruması
+
+- Eğitim oluşturma ve düzenleme ekranında form snapshot'ı takip edilir.
+- SPA navigasyonu, tarayıcı yenileme/kapatma ve geri gitme öncesinde uyarı gösterilir.
+- Katılımcı ekleme/çıkarma, son tarih veya imzalı form seçimi kaydedilmeden sayfadan çıkılırsa uyarılır.
+- Admin sonuç düzeltme modalı, cevap veya gerekçe değiştiğinde kapatılmadan önce onay ister.
+- Başarılı kayıt sonrasında dirty state temizlenir ve normal yönlendirme engellenmez.
+
 ## 14. Prisma Veri Modeli
 
 Modül aşağıdaki ana modelleri kullanır:
@@ -320,6 +380,7 @@ Modül aşağıdaki ana modelleri kullanır:
 - `ExamAnswer`
 - `ExamAnswerOption`
 - `TrainingDocument`
+- `ExamResultAudit`
 
 Gerçek DB erişimi olmadığı için migration uygulanmamıştır. Hazırlanan dosyalar:
 
@@ -343,13 +404,13 @@ Backend başlıca değerleri:
 - Sınav submit toleransı
 - Video ilerleme toleransı
 - Admin rol listesi
-- Kimlik header ayarları
+- Kimlik ID ve e-posta header ayarları
 
 Frontend başlıca değerleri:
 
 - API base URL
-- Kimlik header adı
-- Yerel çalışan/admin ID'leri
+- Kimlik ID ve e-posta header adları
+- Yerel çalışan/admin ID veya e-posta değerleri
 - Görüntüleme ve upload limitleri
 
 Gerçek environment dosyaları repository'ye eklenmez; yalnızca `.env.example` dosyaları bulunur.
@@ -366,6 +427,7 @@ Kod geliştirme ve teslim sürecinde:
 - Production CORS reddinde `403`
 - Boş sınav PDF smoke testi
 - Katılımcı cevap PDF smoke testi
+- Resimli şık içeren boş sınav ve katılımcı cevap PDF smoke testi
 - Katılım formu PDF smoke testi
 - Çok sayfalı katılım formu kontrolü
 - PDF şablonlarının build çıktısına kopyalanması
