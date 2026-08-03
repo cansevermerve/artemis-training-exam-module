@@ -41,7 +41,7 @@ function AttendanceFormPage() {
           onClick={() => navigate(`/admin/trainings/${trainingId}/participants`)}
           className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"
         >
-          <ArrowLeft className="h-4 w-4" /> Katılımcılara Dön
+          <ArrowLeft className="h-4 w-4" /> Katılımcılar Sayfasına Dön
         </button>
         <h1 className="mt-5 text-xl font-semibold text-gray-900 dark:text-gray-100">
           Katılım Formu Oluştur

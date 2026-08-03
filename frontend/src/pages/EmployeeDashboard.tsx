@@ -80,7 +80,7 @@ function EmployeeDashboard() {
   const [sortBy, setSortBy] = useState("dueDate");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const pageSize = 10;
   const [showAssignedTests, setShowAssignedTests] = useState(true);
 
   useEffect(() => {
@@ -240,7 +240,7 @@ function EmployeeDashboard() {
 
         {showAssignedTests && (
           <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-            <div className="grid gap-3 md:grid-cols-[1fr_160px_150px_120px]">
+            <div className="grid gap-3 md:grid-cols-[1fr_160px_150px]">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
@@ -281,19 +281,6 @@ function EmployeeDashboard() {
                 <option value="newest">En Yeni</option>
               </select>
 
-              <select
-                value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value));
-                  setPage(1);
-                }}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-                aria-label="Sayfa başına eğitim"
-              >
-                <option value={5}>5 kayıt</option>
-                <option value={10}>10 kayıt</option>
-                <option value={20}>20 kayıt</option>
-              </select>
             </div>
 
             <div className="mt-4 space-y-3">

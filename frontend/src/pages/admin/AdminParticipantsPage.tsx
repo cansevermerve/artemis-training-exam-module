@@ -111,7 +111,7 @@ function AdminParticipantsPage() {
   const [userSearch, setUserSearch] = useState("");
   const [debouncedUserSearch, setDebouncedUserSearch] = useState("");
   const [userPage, setUserPage] = useState(1);
-  const [userPageSize, setUserPageSize] = useState(20);
+  const userPageSize = 20;
   const [userTotal, setUserTotal] = useState(0);
   const [userTotalPages, setUserTotalPages] = useState(1);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -119,7 +119,7 @@ function AdminParticipantsPage() {
   const [participantStatus, setParticipantStatus] =
     useState<ParticipantStatusFilter>("ALL");
   const [participantPage, setParticipantPage] = useState(1);
-  const [participantPageSize, setParticipantPageSize] = useState(10);
+  const participantPageSize = 10;
   const [dueDate, setDueDate] = useState("");
   const [signedAttendanceFile, setSignedAttendanceFile] = useState<File | null>(null);
   const [signedAttendanceDate, setSignedAttendanceDate] = useState("");
@@ -506,7 +506,7 @@ function AdminParticipantsPage() {
 
           <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_240px]">
             <div>
-              <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_130px]">
+              <div className="mb-3">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input
@@ -516,19 +516,6 @@ function AdminParticipantsPage() {
                     className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   />
                 </div>
-                <select
-                  value={userPageSize}
-                  onChange={(event) => {
-                    setUserPageSize(Number(event.target.value));
-                    setUserPage(1);
-                  }}
-                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                  aria-label="Sayfa başına çalışan"
-                >
-                  <option value={10}>10 kişi</option>
-                  <option value={20}>20 kişi</option>
-                  <option value={50}>50 kişi</option>
-                </select>
               </div>
               <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">
                 {loadingUsers ? (
@@ -639,7 +626,7 @@ function AdminParticipantsPage() {
                 </p>
               </div>
             </div>
-            <div className="mt-4 grid gap-2 md:grid-cols-[1fr_180px_130px]">
+            <div className="mt-4 grid gap-2 md:grid-cols-[1fr_180px]">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
@@ -665,19 +652,6 @@ function AdminParticipantsPage() {
                 <option value="FAILED">Başarısız</option>
                 <option value="IN_PROGRESS">Devam ediyor</option>
                 <option value="NOT_STARTED">Başlamadı</option>
-              </select>
-              <select
-                value={participantPageSize}
-                onChange={(event) => {
-                  setParticipantPageSize(Number(event.target.value));
-                  setParticipantPage(1);
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                aria-label="Sayfa başına katılımcı"
-              >
-                <option value={10}>10 kayıt</option>
-                <option value={25}>25 kayıt</option>
-                <option value={50}>50 kayıt</option>
               </select>
             </div>
           </div>

@@ -50,7 +50,7 @@ function AdminTestPage() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<TrainingStatusFilter>("ALL");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const pageSize = 10;
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -225,7 +225,7 @@ function AdminTestPage() {
         )}
 
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <div className="grid gap-3 md:grid-cols-[1fr_180px_130px]">
+          <div className="grid gap-3 md:grid-cols-[1fr_180px]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
@@ -247,19 +247,6 @@ function AdminTestPage() {
               <option value="ACTIVE">Aktif</option>
               <option value="INACTIVE">Pasif</option>
               <option value="DRAFT">Taslak</option>
-            </select>
-            <select
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value));
-                setPage(1);
-              }}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-gray-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              aria-label="Sayfa başına kayıt"
-            >
-              <option value={10}>10 kayıt</option>
-              <option value={25}>25 kayıt</option>
-              <option value={50}>50 kayıt</option>
             </select>
           </div>
         </div>

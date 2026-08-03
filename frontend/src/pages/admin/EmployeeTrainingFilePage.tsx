@@ -373,7 +373,7 @@ function EmployeeTrainingFilePage() {
               onClick={() => navigate(`/admin/trainings/${trainingId}/participants`)}
               className="mb-3 inline-flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300"
             >
-              <ArrowLeft className="h-4 w-4" /> Katılımcılara Dön
+              <ArrowLeft className="h-4 w-4" /> Katılımcılar Sayfasına Dön
             </button>
             <h1 className="flex items-center gap-2 text-2xl font-semibold text-gray-900 dark:text-gray-100">
               <UserRound className="h-7 w-7" /> {data?.employee.name ?? "Katılımcı"}
