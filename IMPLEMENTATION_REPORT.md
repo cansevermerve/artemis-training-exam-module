@@ -470,3 +470,9 @@ Modülün uygulama kodu aşağıdaki alanlarda tamamlanmıştır:
 - Veri bütünlüğü ve erişim kontrolleri
 
 Canlıya geçiş için kalan çalışma yeni bir UI veya sınav özelliği geliştirmek değil; gerçek veritabanı şeması, kurumsal kullanıcı kimliği ve production storage altyapısının mevcut kodla eşleştirilmesidir.
+
+## Router / Kaydedilmemiş Değişiklik Düzeltmesi
+
+- Kaydedilmemiş değişiklik uyarısında kullanılan `useBlocker` için uygulama `createBrowserRouter` / `RouterProvider` tabanlı data router yapısına geçirildi.
+- Bu düzeltme Eğitim Oluştur ve Katılımcılar sayfalarında oluşan beyaz ekran sorununu giderir.
+- Katılımcılar sayfasındaki ortak belgeler alanında İmzalı Katılım Formu yükleme alanı aktif olarak korunmuştur.
