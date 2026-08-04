@@ -286,6 +286,8 @@ Ek davranışlar:
 - Soru görselleri güvenli storage üzerinden çözülür.
 - Çoklu cevaplar PDF'te eksiksiz gösterilir.
 - Metinli, görselli ve metin + görsel şıklar PDF çıktılarında ölçeklenerek gösterilir.
+- Katılım formunda şablon tipi açıkça seçilir; İSG ve Yüksekte Çalışma şablonları sessizce birbirine düşmez.
+- Katılım formunun eğitim adı/konusu, tarih, süre, yer/firma ve eğitim şekli alanları seçili eğitim kaydından dinamik doldurulur; kaşe ve imza alanları boş bırakılır.
 - Katılım formu satır kapasitesi aşılırsa aynı şablonla yeni sayfa oluşturulur.
 - İptal edilmiş atamalar yeni katılım formu ve katılımcı çıktılarında gösterilmez.
 - Build sırasında şablonlar `dist/pdf/templates` dizinine kopyalanır.
@@ -471,8 +473,15 @@ Modülün uygulama kodu aşağıdaki alanlarda tamamlanmıştır:
 
 Canlıya geçiş için kalan çalışma yeni bir UI veya sınav özelliği geliştirmek değil; gerçek veritabanı şeması, kurumsal kullanıcı kimliği ve production storage altyapısının mevcut kodla eşleştirilmesidir.
 
-## Router / Kaydedilmemiş Değişiklik Düzeltmesi
+## 19. Router / Kaydedilmemiş Değişiklik Düzeltmesi
 
 - Kaydedilmemiş değişiklik uyarısında kullanılan `useBlocker` için uygulama `createBrowserRouter` / `RouterProvider` tabanlı data router yapısına geçirildi.
 - Bu düzeltme Eğitim Oluştur ve Katılımcılar sayfalarında oluşan beyaz ekran sorununu giderir.
 - Katılımcılar sayfasındaki ortak belgeler alanında İmzalı Katılım Formu yükleme alanı aktif olarak korunmuştur.
+
+
+## 20. CEO Son Revizyonları
+
+- Başarılı sınav sonucu İK panelinde sertifika yükleme kuyruğuna düşer; çalışan tarafında sertifikaya ilişkin bekleme mesajı gösterilmez.
+- Katılımcı listesi ve sınav sonuçları tek indirme butonundan PDF veya Excel formatında alınabilir.
+- Excel ve PDF çıktıları aynı seçili eğitim ve aynı filtrelenmiş katılımcı kayıtlarından üretilir; kişi adı ayrı, filtrelenmemiş bir listeden seçilmez.
