@@ -88,14 +88,24 @@ const QUESTION_TO_FIRST_OPTION_GAP = 2.2;
 const OPTION_GAP = 0.3;
 const QUESTION_BOTTOM_GAP = 9.0;
 
-const IMAGE_MAX_WIDTH = COLUMN_WIDTH - 10;
-const IMAGE_MAX_HEIGHT = 90;
+const IMAGE_MAX_WIDTH = COLUMN_WIDTH - 50;
+const IMAGE_MAX_HEIGHT = 60;
 const IMAGE_TOP_GAP = 3;
 const IMAGE_BOTTOM_GAP = 4;
 const OPTION_IMAGE_MAX_WIDTH = COLUMN_WIDTH - 28;
 const OPTION_IMAGE_MAX_HEIGHT = 72;
 const OPTION_IMAGE_TOP_GAP = 2;
 const OPTION_IMAGE_BOTTOM_GAP = 3;
+
+// Tüm şıkların görseli varsa küçük görseller aynı satırda yan yana yerleştirilir.
+const OPTION_IMAGE_GRID_MAX_COLUMNS = 4;
+const OPTION_IMAGE_GRID_GAP = 4;
+const OPTION_IMAGE_GRID_FONT_SIZE = 7.2;
+const OPTION_IMAGE_GRID_LINE_HEIGHT = 8.2;
+const OPTION_IMAGE_GRID_LABEL_GAP = 1.5;
+const OPTION_IMAGE_GRID_MAX_HEIGHT = 46;
+const OPTION_IMAGE_GRID_ROW_GAP = 4;
+const OPTION_IMAGE_GRID_MARKER_GUTTER = 5;
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -337,6 +347,51 @@ function createOptionLayout(
   };
 }
 
+function hasUsableOptionImage(option: ParticipantAnswerPdfOption): boolean {
+  return Boolean(option.imageUrl && fs.existsSync(option.imageUrl));
+}
+
+function shouldUseOptionImageGrid(
+  options: ParticipantAnswerPdfOption[]
+): boolean {
+  return options.length >= 2 && options.every(hasUsableOptionImage);
+}
+
+function getOptionImageGridColumnCount(
+  options: ParticipantAnswerPdfOption[]
+): number {
+  return Math.max(1, Math.min(OPTION_IMAGE_GRID_MAX_COLUMNS, options.length));
+}
+
+function getOptionImageGridCellWidth(
+  options: ParticipantAnswerPdfOption[]
+): number {
+  const columnCount = getOptionImageGridColumnCount(options);
+  return (
+    COLUMN_WIDTH - OPTION_IMAGE_GRID_GAP * (columnCount - 1)
+  ) / columnCount;
+}
+
+function getOptionImageGridLabelLines(
+  option: ParticipantAnswerPdfOption,
+  optionIndex: number,
+  fonts: EmbeddedFonts,
+  cellWidth: number
+): WrappedLine[] {
+  const letter = OPTION_LETTERS[optionIndex] ?? `${optionIndex + 1}`;
+  const label = option.text?.trim()
+    ? `${letter}) ${option.text}`
+    : `${letter})`;
+  const lines = wrapText(
+    label,
+    fonts.regular,
+    OPTION_IMAGE_GRID_FONT_SIZE,
+    Math.max(1, cellWidth - OPTION_IMAGE_GRID_MARKER_GUTTER)
+  );
+
+  return lines.length ? lines : [{ text: label, width: 0 }];
+}
+
 function measureQuestionHeight(
   question: ParticipantAnswerPdfQuestion,
   fonts: EmbeddedFonts,
@@ -352,22 +407,53 @@ function measureQuestionHeight(
   let height =
     questionLines.length * LINE_HEIGHT + QUESTION_TO_FIRST_OPTION_GAP;
 
-  getSortedOptions(question).forEach((option, index, options) => {
-    const optionLayout = createOptionLayout(option, index, fonts, 0);
+  const options = getSortedOptions(question);
 
-    height += optionLayout.textLines.length * LINE_HEIGHT;
+  if (shouldUseOptionImageGrid(options)) {
+    const columnCount = getOptionImageGridColumnCount(options);
+    const cellWidth = getOptionImageGridCellWidth(options);
 
-    if (option.imageUrl && fs.existsSync(option.imageUrl)) {
+    for (let rowStart = 0; rowStart < options.length; rowStart += columnCount) {
+      const rowOptions = options.slice(rowStart, rowStart + columnCount);
+      const maximumLabelLineCount = Math.max(
+        1,
+        ...rowOptions.map((option, rowIndex) =>
+          getOptionImageGridLabelLines(
+            option,
+            rowStart + rowIndex,
+            fonts,
+            cellWidth
+          ).length
+        )
+      );
+
       height +=
-        OPTION_IMAGE_TOP_GAP +
-        OPTION_IMAGE_MAX_HEIGHT +
-        OPTION_IMAGE_BOTTOM_GAP;
-    }
+        maximumLabelLineCount * OPTION_IMAGE_GRID_LINE_HEIGHT +
+        OPTION_IMAGE_GRID_LABEL_GAP +
+        OPTION_IMAGE_GRID_MAX_HEIGHT;
 
-    if (index < options.length - 1) {
-      height += OPTION_GAP;
+      if (rowStart + columnCount < options.length) {
+        height += OPTION_IMAGE_GRID_ROW_GAP;
+      }
     }
-  });
+  } else {
+    options.forEach((option, index) => {
+      const optionLayout = createOptionLayout(option, index, fonts, 0);
+
+      height += optionLayout.textLines.length * LINE_HEIGHT;
+
+      if (hasUsableOptionImage(option)) {
+        height +=
+          OPTION_IMAGE_TOP_GAP +
+          OPTION_IMAGE_MAX_HEIGHT +
+          OPTION_IMAGE_BOTTOM_GAP;
+      }
+
+      if (index < options.length - 1) {
+        height += OPTION_GAP;
+      }
+    });
+  }
 
   if (hasImage) {
     height += IMAGE_TOP_GAP + IMAGE_MAX_HEIGHT + IMAGE_BOTTOM_GAP;
@@ -552,74 +638,198 @@ async function drawAnsweredQuestion(
 
   const options = getSortedOptions(question);
 
-  for (let index = 0; index < options.length; index += 1) {
-    const option = options[index];
-    const optionLayout = createOptionLayout(
-      option,
-      index,
-      fonts,
-      x
-    );
-    const isSelected = answer?.selectedOptionIds?.includes(option.id) ?? false;
+  if (shouldUseOptionImageGrid(options)) {
+    const columnCount = getOptionImageGridColumnCount(options);
+    const cellWidth = getOptionImageGridCellWidth(options);
 
-    drawOptionDecorations(
-      page,
-      optionLayout,
-      currentTop,
-      option.isCorrect,
-      isSelected
-    );
-
-    currentTop += drawOption(
-      page,
-      optionLayout,
-      currentTop,
-      fonts
-    );
-
-    if (option.imageUrl) {
-      const embeddedOptionImage = await embedQuestionImage(
-        outputPdf,
-        option.imageUrl
+    for (let rowStart = 0; rowStart < options.length; rowStart += columnCount) {
+      const rowOptions = options.slice(rowStart, rowStart + columnCount);
+      const labelLinesByOption = rowOptions.map((option, rowIndex) =>
+        getOptionImageGridLabelLines(
+          option,
+          rowStart + rowIndex,
+          fonts,
+          cellWidth
+        )
       );
+      const maximumLabelLineCount = Math.max(
+        1,
+        ...labelLinesByOption.map((lines) => lines.length)
+      );
+      const labelHeight =
+        maximumLabelLineCount * OPTION_IMAGE_GRID_LINE_HEIGHT;
+      const imageSlotTop =
+        currentTop + labelHeight + OPTION_IMAGE_GRID_LABEL_GAP;
 
-      if (embeddedOptionImage) {
-        currentTop += OPTION_IMAGE_TOP_GAP;
-
-        const imageSize = getContainedImageSize(
-          embeddedOptionImage,
-          OPTION_IMAGE_MAX_WIDTH,
-          OPTION_IMAGE_MAX_HEIGHT
-        );
-        const imageX =
-          x + OPTION_LEFT_GUTTER + 13 +
-          (OPTION_IMAGE_MAX_WIDTH - imageSize.width) / 2;
-        const imageY = topToPdfY(currentTop + imageSize.height);
-
-        page.drawImage(embeddedOptionImage, {
-          x: imageX,
-          y: imageY,
-          width: imageSize.width,
-          height: imageSize.height,
-        });
+      for (let columnIndex = 0; columnIndex < rowOptions.length; columnIndex += 1) {
+        const option = rowOptions[columnIndex];
+        const cellX =
+          x + columnIndex * (cellWidth + OPTION_IMAGE_GRID_GAP);
+        const labelX = cellX + OPTION_IMAGE_GRID_MARKER_GUTTER;
+        const labelLines = labelLinesByOption[columnIndex];
+        const isSelected =
+          answer?.selectedOptionIds?.includes(option.id) ?? false;
 
         if (option.isCorrect) {
-          page.drawRectangle({
-            x: imageX - 1.5,
-            y: imageY - 1.5,
-            width: imageSize.width + 3,
-            height: imageSize.height + 3,
-            borderColor: CORRECT_HIGHLIGHT,
-            borderWidth: 2,
+          labelLines.forEach((line, lineIndex) => {
+            if (!line.text) return;
+            const lineTop =
+              currentTop + lineIndex * OPTION_IMAGE_GRID_LINE_HEIGHT;
+            page.drawRectangle({
+              x: labelX - 1,
+              y: topToPdfY(
+                lineTop + OPTION_IMAGE_GRID_FONT_SIZE + 1
+              ),
+              width: Math.min(
+                line.width + 2,
+                cellWidth - OPTION_IMAGE_GRID_MARKER_GUTTER
+              ),
+              height: OPTION_IMAGE_GRID_FONT_SIZE + 2,
+              color: CORRECT_HIGHLIGHT,
+              borderWidth: 0,
+            });
           });
         }
 
-        currentTop += imageSize.height + OPTION_IMAGE_BOTTOM_GAP;
+        if (isSelected) {
+          page.drawCircle({
+            x: cellX + SELECTED_MARKER_RADIUS,
+            y: topToPdfY(
+              currentTop + OPTION_IMAGE_GRID_LINE_HEIGHT / 2
+            ),
+            size: SELECTED_MARKER_RADIUS,
+            color: BLACK,
+          });
+        }
+
+        labelLines.forEach((line, lineIndex) => {
+          page.drawText(line.text, {
+            x: labelX,
+            y: topToPdfY(
+              currentTop +
+              OPTION_IMAGE_GRID_FONT_SIZE +
+              lineIndex * OPTION_IMAGE_GRID_LINE_HEIGHT
+            ),
+            size: OPTION_IMAGE_GRID_FONT_SIZE,
+            font: fonts.regular,
+            color: BLACK,
+          });
+        });
+
+        const embeddedOptionImage = await embedQuestionImage(
+          outputPdf,
+          option.imageUrl!
+        );
+
+        if (embeddedOptionImage) {
+          const imageSize = getContainedImageSize(
+            embeddedOptionImage,
+            Math.max(1, cellWidth - 4),
+            OPTION_IMAGE_GRID_MAX_HEIGHT
+          );
+          const imageX = cellX + (cellWidth - imageSize.width) / 2;
+          const imageTop =
+            imageSlotTop +
+            (OPTION_IMAGE_GRID_MAX_HEIGHT - imageSize.height) / 2;
+          const imageY = topToPdfY(imageTop + imageSize.height);
+
+          page.drawImage(embeddedOptionImage, {
+            x: imageX,
+            y: imageY,
+            width: imageSize.width,
+            height: imageSize.height,
+          });
+
+          if (option.isCorrect) {
+            page.drawRectangle({
+              x: imageX - 1.2,
+              y: imageY - 1.2,
+              width: imageSize.width + 2.4,
+              height: imageSize.height + 2.4,
+              borderColor: CORRECT_HIGHLIGHT,
+              borderWidth: 1.5,
+            });
+          }
+        }
+
+      }
+
+      currentTop = imageSlotTop + OPTION_IMAGE_GRID_MAX_HEIGHT;
+
+      if (rowStart + columnCount < options.length) {
+        currentTop += OPTION_IMAGE_GRID_ROW_GAP;
       }
     }
+  } else {
+    for (let index = 0; index < options.length; index += 1) {
+      const option = options[index];
+      const optionLayout = createOptionLayout(
+        option,
+        index,
+        fonts,
+        x
+      );
+      const isSelected = answer?.selectedOptionIds?.includes(option.id) ?? false;
 
-    if (index < options.length - 1) {
-      currentTop += OPTION_GAP;
+      drawOptionDecorations(
+        page,
+        optionLayout,
+        currentTop,
+        option.isCorrect,
+        isSelected
+      );
+
+      currentTop += drawOption(
+        page,
+        optionLayout,
+        currentTop,
+        fonts
+      );
+
+      if (option.imageUrl) {
+        const embeddedOptionImage = await embedQuestionImage(
+          outputPdf,
+          option.imageUrl
+        );
+
+        if (embeddedOptionImage) {
+          currentTop += OPTION_IMAGE_TOP_GAP;
+
+          const imageSize = getContainedImageSize(
+            embeddedOptionImage,
+            OPTION_IMAGE_MAX_WIDTH,
+            OPTION_IMAGE_MAX_HEIGHT
+          );
+          const imageX =
+            x + OPTION_LEFT_GUTTER + 13 +
+            (OPTION_IMAGE_MAX_WIDTH - imageSize.width) / 2;
+          const imageY = topToPdfY(currentTop + imageSize.height);
+
+          page.drawImage(embeddedOptionImage, {
+            x: imageX,
+            y: imageY,
+            width: imageSize.width,
+            height: imageSize.height,
+          });
+
+          if (option.isCorrect) {
+            page.drawRectangle({
+              x: imageX - 1.5,
+              y: imageY - 1.5,
+              width: imageSize.width + 3,
+              height: imageSize.height + 3,
+              borderColor: CORRECT_HIGHLIGHT,
+              borderWidth: 2,
+            });
+          }
+
+          currentTop += imageSize.height + OPTION_IMAGE_BOTTOM_GAP;
+        }
+      }
+
+      if (index < options.length - 1) {
+        currentTop += OPTION_GAP;
+      }
     }
   }
 
