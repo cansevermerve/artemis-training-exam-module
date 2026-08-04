@@ -19,7 +19,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  Award,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -31,7 +30,6 @@ import {
   Eye,
   FileText,
   Image as ImageIcon,
-  Info,
   ListChecks,
   Plus,
   Save,
@@ -100,7 +98,6 @@ type TrainingApiRecord = {
   hasTrainingContent: boolean;
   mustCompleteContent: boolean;
   hasExam: boolean;
-  hasCertificate: boolean;
   hasAttendanceForm: boolean;
   passingScore: number | null;
   attemptLimit: number | null;
@@ -108,7 +105,6 @@ type TrainingApiRecord = {
   shuffleQuestions: boolean;
   shuffleOptions: boolean;
   showCorrectAnswers: boolean;
-  certificateMinimumScore: number | null;
   questions: TrainingApiQuestion[];
   contents?: TrainingApiContent[];
   coverImageUrl?: string | null;
@@ -318,8 +314,6 @@ function CreateTestPage() {
   const [hasExam, setHasExam] =
     useState(true);
 
-  const [hasCertificate, setHasCertificate] =
-    useState(true);
 
   const [hasAttendanceForm, setHasAttendanceForm] =
     useState(true);
@@ -358,11 +352,6 @@ function CreateTestPage() {
     setShowCorrectAnswersAfterExam,
   ] = useState(false);
 
-  // Sertifika ayarları
-  const [
-    certificateMinimumScore,
-    setCertificateMinimumScore,
-  ] = useState(70);
 
   // Sorular
   const [questions, setQuestions] =
@@ -409,7 +398,6 @@ function CreateTestPage() {
     hasTrainingContent,
     mustCompleteContent,
     hasExam,
-    hasCertificate,
     hasAttendanceForm,
     passingScore,
     attemptLimit,
@@ -417,7 +405,6 @@ function CreateTestPage() {
     shuffleQuestions,
     shuffleOptions,
     showCorrectAnswersAfterExam,
-    certificateMinimumScore,
     coverImage: coverImage
       ? [coverImage.name, coverImage.size, coverImage.lastModified]
       : null,
@@ -508,7 +495,6 @@ function CreateTestPage() {
         setHasTrainingContent(Boolean(training.hasTrainingContent));
         setMustCompleteContent(Boolean(training.mustCompleteContent));
         setHasExam(Boolean(training.hasExam));
-        setHasCertificate(Boolean(training.hasCertificate));
         setHasAttendanceForm(Boolean(training.hasAttendanceForm));
         setPassingScore(training.passingScore ?? 70);
         setAttemptLimit(training.attemptLimit ?? 1);
@@ -516,7 +502,6 @@ function CreateTestPage() {
         setShuffleQuestions(Boolean(training.shuffleQuestions));
         setShuffleOptions(Boolean(training.shuffleOptions));
         setShowCorrectAnswersAfterExam(Boolean(training.showCorrectAnswers));
-        setCertificateMinimumScore(training.certificateMinimumScore ?? 70);
         setExistingContentCount(training.contents?.length ?? 0);
         setExistingContents(training.contents ?? []);
 
@@ -1133,27 +1118,6 @@ function CreateTestPage() {
       }
     }
 
-    if (hasCertificate) {
-      if (!hasExam) {
-        issues.push({
-          id: "certificateExam",
-          message:
-            "Sertifika üretimi için sınav modülü açık olmalıdır veya sertifika koşulu ayrıca tanımlanmalıdır.",
-        });
-      }
-
-      if (
-        certificateMinimumScore < passingScore ||
-        certificateMinimumScore > 100
-      ) {
-        issues.push({
-          id: "certificateMinimumScore",
-          message:
-            "Sertifika başarı puanı geçme puanından düşük ve 100'den yüksek olamaz.",
-        });
-      }
-
-    }
 
     return issues;
   }
@@ -1214,7 +1178,6 @@ function CreateTestPage() {
         hasTrainingContent,
         mustCompleteContent: hasTrainingContent ? mustCompleteContent : false,
         hasExam,
-        hasCertificate: hasExam && hasCertificate,
         hasAttendanceForm,
       },
       exam: hasExam
@@ -1248,9 +1211,6 @@ function CreateTestPage() {
                 }
               : {}),
           }
-        : null,
-      certificate: hasExam && hasCertificate
-        ? { minimumScore: certificateMinimumScore }
         : null,
     };
 
@@ -1530,7 +1490,7 @@ function CreateTestPage() {
           <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
             {isEditMode
               ? "Mevcut eğitimin içerik, sınav, başarı ve belge ayarlarını güncelleyin."
-              : "Eğitim içeriğini, zorunlu tamamlama akışını, sınavı ve sertifikayı tek ekrandan hazırlayın. Katılımcı seçimi kayıttan sonraki ayrı adımda yapılır."}
+              : "Eğitim içeriğini, zorunlu tamamlama akışını ve sınavı tek ekrandan hazırlayın. Katılımcı seçimi kayıttan sonraki ayrı adımda yapılır."}
           </p>
           {hasUnsavedChanges && (
             <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
@@ -1568,12 +1528,8 @@ function CreateTestPage() {
               label: "3. Sınav",
             },
             {
-              icon: Award,
-              label: "4. Sertifika",
-            },
-            {
               icon: Users,
-              label: "5. Atama",
+              label: "4. Atama",
             },
           ].map(
             (
@@ -1589,7 +1545,7 @@ function CreateTestPage() {
               >
                 <div
                   className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
-                    index < 4
+                    index < 3
                       ? "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                       : "border border-dashed border-gray-300 text-gray-400 dark:border-gray-600"
                   }`}
@@ -1599,7 +1555,7 @@ function CreateTestPage() {
                   {label}
                 </div>
 
-                {index < 4 && (
+                {index < 3 && (
                   <ArrowRight className="h-4 w-4 text-gray-300" />
                 )}
               </div>
@@ -1950,7 +1906,7 @@ function CreateTestPage() {
       </SectionCard>
       <SectionCard
         title="Akış ve Modül Ayarları"
-        description="BTK Akademi benzeri zorunlu içerik → sınav → sertifika akışını yönetin."
+        description="BTK Akademi benzeri zorunlu içerik → sınav akışını yönetin."
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <SwitchRow
@@ -1994,22 +1950,10 @@ function CreateTestPage() {
 
               if (!nextValue) {
                 setMustCompleteContent(false);
-                setHasCertificate(false);
               }
             }}
           />
 
-          <SwitchRow
-            label="Sertifika"
-            description="Sınavı ve sertifika koşulunu geçen çalışan için doldurulmuş sertifika üretilir."
-            checked={hasCertificate}
-            onChange={() =>
-              setHasCertificate(
-                (current) => !current
-              )
-            }
-            disabled={!hasExam}
-          />
 
           <SwitchRow
             label="Katılım Formu"
@@ -2750,66 +2694,6 @@ function CreateTestPage() {
           </section>
         </>
       )}
-      {hasCertificate && (
-        <SectionCard
-          title="Sertifika Ayarları"
-          description="Başarı koşulunu sağlayan çalışan için resmî OSGB sertifikası katılımcı ekranından manuel yüklenir."
-        >
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field
-              label="Sertifika için minimum başarı puanı"
-              required
-              hint={`Sınav geçme puanı: ${passingScore}`}
-            >
-              <input
-                id="certificateMinimumScore"
-                type="number"
-                min={passingScore}
-                max={100}
-                value={certificateMinimumScore}
-                onChange={(event) =>
-                  setCertificateMinimumScore(
-                    clampNumber(
-                      event.target.value,
-                      passingScore,
-                      100,
-                      certificateMinimumScore
-                    )
-                  )
-                }
-                className={inputClassName}
-              />
-            </Field>
-
-            <Field label="Sertifika akışı" required>
-              <select
-                id="certificateTemplate"
-                value="manual-osgb"
-                disabled
-                className={inputClassName}
-              >
-                <option value="manual-osgb">Manuel OSGB Sertifikası</option>
-              </select>
-            </Field>
-
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs leading-5 text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400 md:col-span-2">
-              <div className="flex items-start gap-2">
-                <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  <p className="font-medium text-gray-700 dark:text-gray-300">
-                    Manuel OSGB Sertifikası
-                  </p>
-                  <p className="mt-1">
-                    Sertifika otomatik üretilmez. Çalışan sınavı bu puanla geçtikten sonra,
-                    OSGB tarafından hazırlanan imzalı PDF Katılımcılar ekranından ilgili
-                    başarılı denemeye yüklenir.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-      )}
 
       {hasAttendanceForm && (
         <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
@@ -3042,24 +2926,14 @@ function CreateTestPage() {
                   </div>
                 )}
 
-                {hasCertificate && (
+                {hasExam && (
                   <div className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                    <div className="rounded-lg bg-gray-100 p-2 dark:bg-gray-800">
-                      <Award className="h-5 w-5 text-gray-600 dark:text-gray-300" />
-                    </div>
-
                     <div>
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                        Sertifika
+                        OSGB Sertifikası
                       </p>
-
                       <p className="mt-1 text-xs text-gray-400">
-                        En az{" "}
-                        {
-                          certificateMinimumScore
-                        }{" "}
-                        puan alan katılımcıya
-                        sertifika oluşturulur.
+                        Sınavı başarıyla tamamlayan katılımcının OSGB tarafından hazırlanan PDF sertifikası sonradan manuel yüklenir.
                       </p>
                     </div>
                   </div>

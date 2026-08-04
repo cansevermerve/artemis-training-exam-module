@@ -117,7 +117,6 @@ function AdminTestPage() {
             hasTrainingContent: training.hasTrainingContent,
             mustCompleteContent: training.mustCompleteContent,
             hasExam: training.hasExam,
-            hasCertificate: training.hasCertificate,
             hasAttendanceForm: training.hasAttendanceForm,
           },
           exam: training.hasExam
@@ -128,12 +127,6 @@ function AdminTestPage() {
                 shuffleQuestions: Boolean(training.shuffleQuestions),
                 shuffleOptions: Boolean(training.shuffleOptions),
                 showCorrectAnswersAfterExam: Boolean(training.showCorrectAnswers),
-              }
-            : null,
-          certificate: training.hasCertificate
-            ? {
-                minimumScore:
-                  training.certificateMinimumScore ?? training.passingScore,
               }
             : null,
         }),
@@ -300,7 +293,6 @@ function AdminTestPage() {
                         <td className="px-4 py-4 text-xs text-gray-500">
                           {training.hasTrainingContent ? "İçerik" : "İçeriksiz"}
                           {training.hasExam ? " + Sınav" : ""}
-                          {training.hasCertificate ? " + Sertifika" : ""}
                         </td>
                         <td className="relative px-4 py-4 text-right">
                           <details className="relative inline-block text-left">

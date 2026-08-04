@@ -41,7 +41,7 @@ function toCardModel(assignment: TrainingAssignment): TestCardModel {
     (hasActiveAttempt || finishedAttempts.length < assignment.training.attemptLimit) &&
     assignment.status !== "EXPIRED" &&
     assignment.status !== "CANCELLED";
-  const certificateReady = assignment.documents.some(
+  const certificateReady = Boolean(passedAttempt) && assignment.documents.some(
     (document) => document.type === "OSGB_CERTIFICATE"
   );
 

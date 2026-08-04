@@ -101,15 +101,17 @@ function TestCard({ test }: TestCardProps) {
             <div className="flex items-center gap-2">
               <GraduationCap className="h-4 w-4 text-gray-600 dark:text-gray-300" />
               <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                Sonuç / Sertifika
+                {test.examCompleted ? "Sonuç / Sertifika" : "Sonuç"}
               </p>
             </div>
             <p className="mt-2 text-xs text-gray-400">
               {test.certificateReady
                 ? "Sertifika hazır"
-                : test.resultAttemptId
-                  ? "Sonucu görüntüle"
-                  : "Sınavdan sonra açılır"}
+                : test.examCompleted
+                  ? "Sertifika hazırlanıyor"
+                  : test.resultAttemptId
+                    ? "Sonucu görüntüle"
+                    : "Sınavdan sonra açılır"}
             </p>
           </button>
         </div>
@@ -118,7 +120,7 @@ function TestCard({ test }: TestCardProps) {
           {[
             ["Eğitim", test.trainingCompleted],
             ["Sınav", test.examCompleted],
-            ["Sertifika", test.certificateReady],
+            ...(test.examCompleted ? [["Sertifika", test.certificateReady]] : []),
           ].map(([label, completed]) => (
             <span
               key={String(label)}

@@ -34,10 +34,8 @@ export type Training = {
   hasTrainingContent: boolean;
   mustCompleteContent: boolean;
   hasExam: boolean;
-  hasCertificate: boolean;
   hasAttendanceForm: boolean;
   coverImageUrl?: string | null;
-  certificateMinimumScore?: number | null;
   passingScore: number;
   attemptLimit: number;
   examDurationMinutes: number;
@@ -138,8 +136,6 @@ export type AttemptResult = {
     title: string;
     passingScore: number;
     showCorrectAnswers: boolean;
-    hasCertificate: boolean;
-    certificateMinimumScore: number;
   };
   attemptNumber: number;
   status: "PASSED" | "FAILED" | "TIMED_OUT";
@@ -154,6 +150,6 @@ export type AttemptResult = {
   completedAt: string | null;
   durationSeconds: number;
   remainingAttempts: number;
-  certificateEligible: boolean;
+  certificateStatus: "NOT_ELIGIBLE" | "PREPARING" | "READY";
   certificateUrl: string | null;
 };

@@ -78,9 +78,7 @@ type ParticipantTrainingFile = {
     title: string;
     category: string;
     hasExam: boolean;
-    hasCertificate: boolean;
     passingScore: number;
-    certificateMinimumScore: number | null;
   };
   assignment: {
     id: string;
@@ -214,17 +212,14 @@ function EmployeeTrainingFilePage() {
     [data]
   );
 
-  const certificateMinimumScore =
-    data?.training.certificateMinimumScore ?? data?.training.passingScore ?? 0;
 
   const eligibleCertificateAttempts = useMemo(
     () =>
       completedAttempts.filter(
         (attempt) =>
-          attempt.status === "PASSED" &&
-          (attempt.score ?? -1) >= certificateMinimumScore
+          attempt.status === "PASSED" && attempt.passed === true
       ),
-    [certificateMinimumScore, completedAttempts]
+    [completedAttempts]
   );
 
   const latestAttempt = data?.assignment.attempts[0];
@@ -281,12 +276,11 @@ function EmployeeTrainingFilePage() {
     }
     if (
       uploadType === "OSGB_CERTIFICATE" &&
-      (!data.training.hasCertificate ||
-        !selectedAttempt ||
+      (!selectedAttempt ||
         !eligibleCertificateAttempts.some((attempt) => attempt.id === selectedAttempt.id))
     ) {
       setError(
-        `OSGB sertifikası için en az ${certificateMinimumScore} puanlı başarılı deneme seçilmelidir.`
+        "OSGB sertifikası yalnızca başarılı bir sınav denemesine yüklenebilir."
       );
       return;
     }
@@ -440,7 +434,9 @@ function EmployeeTrainingFilePage() {
                 ["İçerik", data.assignment.contentCompletedAt ? "Tamamlandı" : "Bekliyor"],
                 ["Deneme", data.assignment.attempts.length],
                 ["Son Puan", latestAttempt?.score ?? "—"],
-                ["Sertifika", certificate ? "Yüklendi" : "Bekliyor"],
+                ...(eligibleCertificateAttempts.length > 0
+                  ? [["Sertifika", certificate ? "Yüklendi" : "Hazırlanıyor"]]
+                  : []),
               ].map(([label, value]) => (
                 <div
                   key={String(label)}
@@ -469,7 +465,7 @@ function EmployeeTrainingFilePage() {
                   className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 >
                   {data.training.hasExam && <option value="SIGNED_EXAM">İmzalı Sınav</option>}
-                  {data.training.hasCertificate && <option value="OSGB_CERTIFICATE">OSGB Sertifikası</option>}
+                  {eligibleCertificateAttempts.length > 0 && <option value="OSGB_CERTIFICATE">OSGB Sertifikası</option>}
                   <option value="OTHER">Diğer Kişisel Belge</option>
                 </select>
                 <select

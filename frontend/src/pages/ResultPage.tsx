@@ -12,7 +12,6 @@ function ResultPage() {
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showCertificateModal, setShowCertificateModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +55,7 @@ function ResultPage() {
 
   function handleCertificateClick() {
     if (!result?.certificateUrl) {
-      setShowCertificateModal(true);
+      setError("Sertifika dosyası henüz sisteme yüklenmemiştir.");
       return;
     }
 
@@ -116,7 +115,7 @@ function ResultPage() {
                 {result.training.title} Sonucu
               </h1>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 sm:text-sm">
-                {result.attemptNumber}. Sınav denemesi tamamlandı.
+                {result.attemptNumber}. sınav denemeniz eğitim değerlendirme sistemi tarafından sonuçlandırılmıştır.
               </p>
             </div>
 
@@ -213,13 +212,28 @@ function ResultPage() {
             </p>
           )}
 
-          {result.passed && result.training.hasCertificate && !result.certificateEligible && (
-            <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-              Sertifika için gereken minimum puan: {result.training.certificateMinimumScore}.
+          {!result.passed && (
+            <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">
+              Bu sınav için belirlenen başarı puanına ulaşamadığınızdan sertifika almaya hak kazanamadınız.
             </p>
           )}
 
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {result.certificateStatus === "PREPARING" && (
+            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <p className="font-semibold">Sertifika Hazırlanıyor</p>
+              <p className="mt-1">
+                Sertifikanız OSGB tarafından hazırlanıyor. Belge sisteme yüklendiğinde bu ekrandan görüntüleyebilirsiniz.
+              </p>
+            </div>
+          )}
+
+          <div
+            className={`mt-5 grid grid-cols-1 gap-3 ${
+              result.certificateStatus === "READY" && result.certificateUrl
+                ? "sm:grid-cols-2"
+                : "sm:grid-cols-1"
+            }`}
+          >
             <button
               type="button"
               onClick={() => navigate(isAdminView ? "/admin/trainings" : "/", { replace: true })}
@@ -228,7 +242,7 @@ function ResultPage() {
               Panele Dön
             </button>
 
-            {result.certificateEligible && (
+            {result.certificateStatus === "READY" && result.certificateUrl && (
               <button
                 type="button"
                 onClick={handleCertificateClick}
@@ -241,40 +255,6 @@ function ResultPage() {
         </div>
       </div>
 
-      {showCertificateModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="certificate-modal-title"
-          onClick={() => setShowCertificateModal(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2
-              id="certificate-modal-title"
-              className="text-lg font-semibold text-gray-900 dark:text-gray-100"
-            >
-              Sertifikanız henüz hazır değil
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
-              Bu eğitim için OSGB sertifikası henüz sisteme yüklenmemiştir.
-              Yüklendiğinde bu ekrandan görüntülenebilir.
-            </p>
-            <div className="mt-6 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowCertificateModal(false)}
-                className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900"
-              >
-                Tamam
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
