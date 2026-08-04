@@ -178,7 +178,7 @@ function EmployeeDashboard() {
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-900 dark:text-gray-100 sm:text-2xl">
           <ClipboardList className="h-6 w-6 text-gray-700 dark:text-gray-300" />
-          Artemis Test Module
+          Artemis Eğitim Modülü
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Size atanmış eğitim ve sınavları gerçek sistem kayıtları üzerinden takip edin.
