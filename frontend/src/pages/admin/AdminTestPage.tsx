@@ -302,12 +302,29 @@ function AdminTestPage() {
                             <div className="absolute right-0 z-30 mt-1 w-56 rounded-lg border border-gray-200 bg-white p-1 text-left shadow-lg dark:border-gray-700 dark:bg-gray-800">
                               <button type="button" onClick={() => navigate(`/admin/trainings/${training.id}/edit`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Eğitimi Düzenle</button>
                               <button type="button" onClick={() => navigate(`/admin/trainings/${training.id}/participants`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Katılımcıları Yönet</button>
-                              <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/participants.pdf`, `${training.title}-katilimcilar.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Katılımcı Listesi PDF</button>
-                              <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/participants.xls`, `${training.title}-katilimcilar.xls`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Katılımcı Listesi Excel</button>
+                              <details className="group">
+                                <summary className="flex cursor-pointer list-none items-center justify-between rounded px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700">
+                                  <span>Katılımcıları İndir</span>
+                                  <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+                                </summary>
+                                <div className="ml-3 border-l border-gray-200 pl-2 dark:border-gray-700">
+                                  <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/participants.pdf`, `${training.title}-katilimcilar.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">PDF olarak indir</button>
+                                  <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/participants.xls`, `${training.title}-katilimcilar.xls`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Excel olarak indir</button>
+                                </div>
+                              </details>
                               {training.hasExam && (
                                 <>
-                                  <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/results.pdf`, `${training.title}-sonuclar.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Sonuçlar PDF</button>
-                                  <button type="button" onClick={() => void download(`/pdf/training/${training.id}/exam`, `${training.title}-sinav.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Sınav PDF</button>
+                                  <details className="group">
+                                    <summary className="flex cursor-pointer list-none items-center justify-between rounded px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700">
+                                      <span>Sonuçları İndir</span>
+                                      <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+                                    </summary>
+                                    <div className="ml-3 border-l border-gray-200 pl-2 dark:border-gray-700">
+                                      <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/results.pdf`, `${training.title}-sonuclar.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">PDF olarak indir</button>
+                                      <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/results.xls`, `${training.title}-sonuclar.xls`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Excel olarak indir</button>
+                                    </div>
+                                  </details>
+                                  <button type="button" onClick={() => void download(`/pdf/training/${training.id}/exam`, `${training.title}-sinav.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Sınavı İndir</button>
                                 </>
                               )}
                               {training.hasAttendanceForm && (

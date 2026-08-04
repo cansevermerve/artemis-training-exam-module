@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Award,
@@ -150,6 +150,8 @@ function AnswerOptionItems({
 
 function EmployeeTrainingFilePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const certificateUploadRequested = searchParams.get("upload") === "certificate";
   const { id: trainingId, employeeId } = useParams<{
     id: string;
     employeeId: string;
@@ -179,8 +181,16 @@ function EmployeeTrainingFilePage() {
         `/trainings/${trainingId}/participants/${employeeId}/file`
       );
       setData(response);
-      setUploadType((current) => response.training.hasExam ? current : "OTHER");
+      const passedAttempt = response.assignment.attempts.find(
+        (attempt) => attempt.status === "PASSED" && attempt.passed === true
+      );
+      setUploadType((current) => {
+        if (!response.training.hasExam) return "OTHER";
+        if (certificateUploadRequested && passedAttempt) return "OSGB_CERTIFICATE";
+        return current;
+      });
       setSelectedAttemptId((current) => {
+        if (certificateUploadRequested && passedAttempt) return passedAttempt.id;
         if (current && response.assignment.attempts.some((attempt) => attempt.id === current)) {
           return current;
         }
@@ -197,7 +207,7 @@ function EmployeeTrainingFilePage() {
     } finally {
       setLoading(false);
     }
-  }, [employeeId, trainingId]);
+  }, [certificateUploadRequested, employeeId, trainingId]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => void loadFile(), 0);
@@ -435,7 +445,7 @@ function EmployeeTrainingFilePage() {
                 ["Deneme", data.assignment.attempts.length],
                 ["Son Puan", latestAttempt?.score ?? "—"],
                 ...(eligibleCertificateAttempts.length > 0
-                  ? [["Sertifika", certificate ? "Yüklendi" : "Hazırlanıyor"]]
+                  ? [["Sertifika", certificate ? "Yüklendi" : "Yüklenmedi"]]
                   : []),
               ].map(([label, value]) => (
                 <div

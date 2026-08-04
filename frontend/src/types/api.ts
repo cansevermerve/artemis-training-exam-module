@@ -150,6 +150,6 @@ export type AttemptResult = {
   completedAt: string | null;
   durationSeconds: number;
   remainingAttempts: number;
-  certificateStatus: "NOT_ELIGIBLE" | "PREPARING" | "READY";
+  certificateStatus: "NOT_ELIGIBLE" | "NOT_UPLOADED" | "READY";
   certificateUrl: string | null;
 };

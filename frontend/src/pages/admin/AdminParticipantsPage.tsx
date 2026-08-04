@@ -9,7 +9,6 @@ import {
   Eye,
   FileDown,
   FileSignature,
-  FileSpreadsheet,
   FileText,
   PencilLine,
   RefreshCw,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { AdminResultCorrectionModal } from "../../components/admin/AdminResultCorrectionModal";
+import { DownloadFormatMenu } from "../../components/admin/DownloadFormatMenu";
 import { useUnsavedChangesWarning } from "../../hooks/useUnsavedChangesWarning";
 import {
   adminApiRequest,
@@ -74,6 +74,28 @@ function latestCompletedAttempt(assignment: ParticipantAssignment) {
   return [...assignment.attempts]
     .filter((attempt) => attempt.status !== "IN_PROGRESS")
     .sort((left, right) => right.attemptNumber - left.attemptNumber)[0];
+}
+
+function certificateState(assignment: ParticipantAssignment) {
+  const passedAttempt = [...assignment.attempts]
+    .filter((attempt) => attempt.status === "PASSED" && attempt.passed !== false)
+    .sort((left, right) => right.attemptNumber - left.attemptNumber)[0];
+
+  if (!passedAttempt) {
+    return { eligible: false, uploaded: false, attemptId: null };
+  }
+
+  const documents = [
+    ...assignment.documents,
+    ...(passedAttempt.documents ?? []),
+  ];
+  const uploaded = documents.some(
+    (document) =>
+      document.type === "OSGB_CERTIFICATE" &&
+      (!document.attemptId || document.attemptId === passedAttempt.id)
+  );
+
+  return { eligible: true, uploaded, attemptId: passedAttempt.id };
 }
 
 function attemptLabel(status: ParticipantAttempt["status"]): string {
@@ -219,6 +241,10 @@ function AdminParticipantsPage() {
       passed: assignments.filter((assignment) =>
         assignment.attempts.some((attempt) => attempt.status === "PASSED")
       ).length,
+      pendingCertificates: assignments.filter((assignment) => {
+        const certificate = certificateState(assignment);
+        return certificate.eligible && !certificate.uploaded;
+      }).length,
       completedContent: assignments.filter(
         (assignment) => assignment.contentCompletedAt
       ).length,
@@ -466,11 +492,12 @@ function AdminParticipantsPage() {
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-4">
           {[
             ["Katılımcı", assignments.length],
             ["İçeriği Tamamlayan", summary.completedContent],
             ["Başarılı", summary.passed],
+            ["Sertifika Bekleyen", summary.pendingCertificates],
           ].map(([label, value]) => (
             <div
               key={String(label)}
@@ -670,6 +697,7 @@ function AdminParticipantsPage() {
                     <th className="px-4 py-3">İçerik</th>
                     <th className="px-4 py-3">Son Deneme</th>
                     <th className="px-4 py-3">Durum</th>
+                    <th className="px-4 py-3">Sertifika</th>
                     <th className="px-4 py-3 text-right">İşlemler</th>
                   </tr>
                 </thead>
@@ -677,6 +705,7 @@ function AdminParticipantsPage() {
                   {pagedAssignments.map((assignment) => {
                     const attempt = latestAttempt(assignment);
                     const completedAttempt = latestCompletedAttempt(assignment);
+                    const certificate = certificateState(assignment);
                     const personalFilePath = `/admin/trainings/${trainingId}/participants/${assignment.userId}`;
                     return (
                       <tr
@@ -718,8 +747,35 @@ function AdminParticipantsPage() {
                         <td className="px-4 py-4 text-xs text-gray-600 dark:text-gray-300">
                           {assignmentLabel(assignment.status)}
                         </td>
+                        <td className="px-4 py-4">
+                          {!certificate.eligible ? (
+                            <span className="text-xs text-gray-400">—</span>
+                          ) : (
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                certificate.uploaded
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-amber-50 text-amber-700"
+                              }`}
+                            >
+                              {certificate.uploaded ? "Yüklendi" : "Yüklenmedi"}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-4 text-right">
                           <div className="flex flex-wrap justify-end gap-2">
+                            {certificate.eligible && !certificate.uploaded && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  navigate(`${personalFilePath}?upload=certificate`);
+                                }}
+                                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-200"
+                              >
+                                <Upload className="h-4 w-4" /> Sertifika Yükle
+                              </button>
+                            )}
                             {completedAttempt && (
                               <button
                                 type="button"
@@ -982,47 +1038,32 @@ function AdminParticipantsPage() {
             Çıktılar yalnızca “{training?.title ?? "bu eğitim"}” katılımcılarını içerir.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() =>
+            <DownloadFormatMenu
+              label="Katılımcı Listesini İndir"
+              disabled={Boolean(downloadBusy)}
+              onPick={(format) => {
+                const isPdf = format === "pdf";
                 void downloadFile(
-                  `/exports/trainings/${trainingId}/participants.pdf`,
-                  `${training?.title ?? "egitim"}-katilimcilar.pdf`,
-                  "participants-pdf"
-                )
-              }
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200"
-            >
-              <FileText className="h-4 w-4" /> Katılımcı Listesi PDF
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                void downloadFile(
-                  `/exports/trainings/${trainingId}/participants.xls`,
-                  `${training?.title ?? "egitim"}-katilimcilar.xls`,
-                  "participants-xls"
-                )
-              }
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200"
-            >
-              <FileSpreadsheet className="h-4 w-4" /> Katılımcı Listesi Excel
-            </button>
+                  `/exports/trainings/${trainingId}/participants.${isPdf ? "pdf" : "xls"}`,
+                  `${training?.title ?? "egitim"}-katilimcilar.${isPdf ? "pdf" : "xls"}`,
+                  `participants-${format}`
+                );
+              }}
+            />
             {training?.hasExam && (
               <>
-                <button
-                  type="button"
-                  onClick={() =>
+                <DownloadFormatMenu
+                  label="Sonuçları İndir"
+                  disabled={Boolean(downloadBusy)}
+                  onPick={(format) => {
+                    const isPdf = format === "pdf";
                     void downloadFile(
-                      `/exports/trainings/${trainingId}/results.pdf`,
-                      `${training.title}-sonuclar.pdf`,
-                      "results-pdf"
-                    )
-                  }
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200"
-                >
-                  <FileText className="h-4 w-4" /> Sonuçlar PDF
-                </button>
+                      `/exports/trainings/${trainingId}/results.${isPdf ? "pdf" : "xls"}`,
+                      `${training.title}-sonuclar.${isPdf ? "pdf" : "xls"}`,
+                      `results-${format}`
+                    );
+                  }}
+                />
                 <button
                   type="button"
                   onClick={() =>

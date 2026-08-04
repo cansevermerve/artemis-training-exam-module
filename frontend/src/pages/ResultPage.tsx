@@ -218,15 +218,6 @@ function ResultPage() {
             </p>
           )}
 
-          {result.certificateStatus === "PREPARING" && (
-            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-              <p className="font-semibold">Sertifika Hazırlanıyor</p>
-              <p className="mt-1">
-                Sertifikanız OSGB tarafından hazırlanıyor. Belge sisteme yüklendiğinde bu ekrandan görüntüleyebilirsiniz.
-              </p>
-            </div>
-          )}
-
           <div
             className={`mt-5 grid grid-cols-1 gap-3 ${
               result.certificateStatus === "READY" && result.certificateUrl
