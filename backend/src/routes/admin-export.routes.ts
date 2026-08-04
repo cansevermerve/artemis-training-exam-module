@@ -3,6 +3,7 @@ import { Router } from "express";
 import {
   exportParticipantsExcel,
   exportParticipantsPdf,
+  exportResultsExcel,
   exportResultsPdf,
 } from "../controllers/admin-export.controller.js";
 import { requireAdmin } from "../middleware/auth.js";
@@ -12,4 +13,5 @@ router.use(requireAdmin);
 router.get("/trainings/:trainingId/participants.pdf", exportParticipantsPdf);
 router.get("/trainings/:trainingId/participants.xls", exportParticipantsExcel);
 router.get("/trainings/:trainingId/results.pdf", exportResultsPdf);
+router.get("/trainings/:trainingId/results.xls", exportResultsExcel);
 export default router;

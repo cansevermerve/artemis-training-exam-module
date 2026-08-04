@@ -23,9 +23,13 @@ export interface AttendancePdfParticipant {
 
 export interface AttendancePdfInput {
     templateType: AttendanceTemplateType;
+    trainingTitle?: string | null;
+    trainingTopic?: string | null;
     trainingDate?: string | Date | null;
+    trainingLocation?: string | null;
+    trainingFormat?: string | null;
     organizationName?: string | null;
-    durationHours?: number | null;
+    durationMinutes?: number | null;
     participants: AttendancePdfParticipant[];
     templatePath?: string | null;
     documentTitle?: string | null;
@@ -55,9 +59,10 @@ interface AttendanceTemplateConfig {
     headerFontSize: number;
     rowFontSize: number;
     dateValueBox: BoxCoordinates;
-    organizationValueBox: BoxCoordinates;
-    durationValueBox?: BoxCoordinates;
-    durationMode: "DYNAMIC" | "STATIC";
+    topicValueBox: BoxCoordinates;
+    venueValueBox: BoxCoordinates;
+    durationValueBox: BoxCoordinates;
+    formatValueBox: BoxCoordinates;
     table: {
         firstRowTop: number;
         rowHeight: number;
@@ -73,6 +78,7 @@ interface AttendanceTemplateConfig {
 const PAGE_WIDTH = 595.32;
 const PAGE_HEIGHT = 841.92;
 const BLACK = rgb(0, 0, 0);
+const WHITE = rgb(1, 1, 1);
 
 const MIN_HEADER_FONT_SIZE = 5.8;
 const MIN_ROW_FONT_SIZE = 5.6;
@@ -99,20 +105,30 @@ const ATTENDANCE_TEMPLATE_CONFIGS: Record<
             right: 550.54,
             bottom: 56.64,
         },
-        organizationValueBox: {
+        topicValueBox: {
+            x: 125.66,
+            top: 57.12,
+            right: 451.27,
+            bottom: 78.60,
+        },
+        venueValueBox: {
             x: 125.66,
             top: 79.08,
             right: 451.27,
             bottom: 99.86,
         },
-        // Şablonda "DERS SAATİ" metni hazırdır; yalnızca sayı yazılır.
         durationValueBox: {
-            x: 477.99,
+            x: 451.75,
             top: 79.08,
-            right: 477.5,
+            right: 550.54,
             bottom: 99.86,
         },
-        durationMode: "DYNAMIC",
+        formatValueBox: {
+            x: 125.66,
+            top: 100.34,
+            right: 550.54,
+            bottom: 121.22,
+        },
         table: {
             firstRowTop: 145.34,
             rowHeight: 17.76,
@@ -141,14 +157,30 @@ const ATTENDANCE_TEMPLATE_CONFIGS: Record<
             right: 550.56,
             bottom: 71.16,
         },
-        organizationValueBox: {
+        topicValueBox: {
             x: 125.66,
-            top: 93.5,
+            top: 71.64,
+            right: 451.29,
+            bottom: 93.02,
+        },
+        venueValueBox: {
+            x: 125.66,
+            top: 93.50,
             right: 451.29,
             bottom: 115.58,
         },
-        // Bu şablonda süre "2 DERS SAATİ" olarak sabittir.
-        durationMode: "STATIC",
+        durationValueBox: {
+            x: 451.78,
+            top: 93.50,
+            right: 550.56,
+            bottom: 115.58,
+        },
+        formatValueBox: {
+            x: 125.66,
+            top: 116.06,
+            right: 550.56,
+            bottom: 136.82,
+        },
         table: {
             firstRowTop: 161.06,
             rowHeight: 17.76,
@@ -257,6 +289,54 @@ function formatDate(value?: string | Date | null): string {
         month: "2-digit",
         year: "numeric",
     }).format(date);
+}
+
+function formatDuration(durationMinutes?: number | null): string {
+    if (
+        durationMinutes === null ||
+        durationMinutes === undefined ||
+        !Number.isFinite(durationMinutes) ||
+        durationMinutes <= 0
+    ) {
+        return "";
+    }
+
+    const durationHours = durationMinutes / 60;
+    const formattedHours = new Intl.NumberFormat("tr-TR", {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: Number.isInteger(durationHours) ? 0 : 1,
+    }).format(durationHours);
+
+    return `${formattedHours} DERS SAATİ`;
+}
+
+function formatTrainingMethod(value?: string | null): string {
+    const normalized = normalizeText(value ?? "").toLocaleLowerCase("tr-TR");
+    const isHybrid = normalized.includes("hibrit");
+    const isRemote = normalized.includes("uzak");
+    const isFaceToFace =
+        normalized.includes("yüz") ||
+        normalized.includes("yuzy") ||
+        normalized.includes("yuz yuze");
+
+    const faceToFaceMark = isFaceToFace || isHybrid ? "X" : " ";
+    const remoteMark = isRemote || isHybrid ? "X" : " ";
+
+    return `YÜZYÜZE EĞİTİM [ ${faceToFaceMark} ]     UZAKTAN EĞİTİM [ ${remoteMark} ]`;
+}
+
+function clearBox(page: PDFPage, box: BoxCoordinates): void {
+    const inset = 0.9;
+    const width = Math.max(0, box.right - box.x - inset * 2);
+    const height = Math.max(0, box.bottom - box.top - inset * 2);
+
+    page.drawRectangle({
+        x: box.x + inset,
+        y: topToPdfY(box.bottom - inset),
+        width,
+        height,
+        color: WHITE,
+    });
 }
 
 function getVerticallyCenteredBaselineFromTop(
@@ -372,6 +452,20 @@ function drawHeaderValues(
     config: AttendanceTemplateConfig,
     fonts: EmbeddedFonts
 ): void {
+    const topic = input.trainingTitle?.trim() || input.trainingTopic?.trim() || "";
+    const venue =
+        input.templateType === "WORKING_AT_HEIGHT"
+            ? input.organizationName?.trim() || input.trainingLocation?.trim() || ""
+            : input.trainingLocation?.trim() || input.organizationName?.trim() || "";
+
+    [
+        config.dateValueBox,
+        config.topicValueBox,
+        config.venueValueBox,
+        config.durationValueBox,
+        config.formatValueBox,
+    ].forEach((box) => clearBox(page, box));
+
     drawTextInsideBox(
         page,
         formatDate(input.trainingDate),
@@ -384,30 +478,43 @@ function drawHeaderValues(
 
     drawTextInsideBox(
         page,
-        input.organizationName ?? "",
-        config.organizationValueBox,
+        topic,
+        config.topicValueBox,
         fonts.regular,
         config.headerFontSize,
         MIN_HEADER_FONT_SIZE,
         "LEFT"
     );
 
-    if (
-        config.durationMode === "DYNAMIC" &&
-        config.durationValueBox &&
-        input.durationHours !== null &&
-        input.durationHours !== undefined
-    ) {
-        drawTextInsideBox(
-            page,
-            String(input.durationHours),
-            config.durationValueBox,
-            fonts.regular,
-            config.headerFontSize,
-            MIN_HEADER_FONT_SIZE,
-            "CENTER"
-        );
-    }
+    drawTextInsideBox(
+        page,
+        venue,
+        config.venueValueBox,
+        fonts.regular,
+        config.headerFontSize,
+        MIN_HEADER_FONT_SIZE,
+        "LEFT"
+    );
+
+    drawTextInsideBox(
+        page,
+        formatDuration(input.durationMinutes),
+        config.durationValueBox,
+        fonts.regular,
+        config.headerFontSize,
+        MIN_HEADER_FONT_SIZE,
+        "CENTER"
+    );
+
+    drawTextInsideBox(
+        page,
+        formatTrainingMethod(input.trainingFormat),
+        config.formatValueBox,
+        fonts.regular,
+        config.headerFontSize,
+        MIN_HEADER_FONT_SIZE,
+        "LEFT"
+    );
 }
 
 function drawParticipantRows(
@@ -500,15 +607,17 @@ function validateInput(
         }
     });
 
-    if (config.durationMode === "DYNAMIC") {
-        if (
-            input.durationHours === null ||
-            input.durationHours === undefined ||
-            !Number.isFinite(input.durationHours) ||
-            input.durationHours <= 0
-        ) {
-            throw new Error("Eğitim süresi pozitif bir sayı olmalıdır.");
-        }
+    if (!normalizeText(input.trainingTitle ?? input.trainingTopic ?? "")) {
+        throw new Error("Eğitim adı veya konusu bulunamadı.");
+    }
+
+    if (
+        input.durationMinutes === null ||
+        input.durationMinutes === undefined ||
+        !Number.isFinite(input.durationMinutes) ||
+        input.durationMinutes <= 0
+    ) {
+        throw new Error("Eğitim süresi pozitif bir sayı olmalıdır.");
     }
 }
 

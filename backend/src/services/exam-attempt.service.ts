@@ -723,7 +723,7 @@ export async function getAttemptResult(attemptId: string) {
       ? "NOT_ELIGIBLE"
       : certificate
         ? "READY"
-        : "PREPARING",
+        : "NOT_UPLOADED",
     certificateUrl:
       certificate && (attempt.passed ?? false)
         ? `/documents/${certificate.id}/preview`

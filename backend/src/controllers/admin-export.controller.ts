@@ -184,3 +184,46 @@ export async function exportParticipantsExcel(request: Request, response: Respon
     response.send(buffer);
   } catch (error) { next(error); }
 }
+
+
+export async function exportResultsExcel(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const trainingId = getStringParam(request, "trainingId");
+    const training = await loadTrainingReport(trainingId);
+    const rows = [
+      ["No", "Ad Soyad", "E-posta", "Deneme", "Sonuç", "Puan", "Tarih"],
+      ...training.assignments.map((assignment: any, index: number) => {
+        const attempt = assignment.attempts[0];
+        return [
+          index + 1,
+          assignment.user.name ?? "",
+          assignment.user.email ?? "",
+          attempt?.attemptNumber ?? "",
+          attemptStatusLabel(attempt?.status),
+          attempt?.score ?? "",
+          attempt?.submittedAt ? new Date(attempt.submittedAt).toLocaleString("tr-TR") : "",
+        ];
+      }),
+    ];
+    const xmlRows = rows
+      .map((row) =>
+        `<Row>${row
+          .map(
+            (cell: string | number) =>
+              `<Cell><Data ss:Type="${typeof cell === "number" ? "Number" : "String"}">${escapeXml(cell)}</Data></Cell>`
+          )
+          .join("")}</Row>`
+      )
+      .join("");
+    const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sonuçlar"><Table>${xmlRows}</Table></Worksheet></Workbook>`;
+    const buffer = Buffer.from(xml, "utf8");
+    const fileName = `${safeFilename(training.title)}-sonuclar.xls`;
+    response.setHeader("Content-Type", "application/vnd.ms-excel; charset=utf-8");
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+}

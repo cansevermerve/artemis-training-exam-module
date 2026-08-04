@@ -26,10 +26,19 @@ router.get(
         throw new HttpError(400, "trainingId query parametresi zorunludur.");
       }
 
-      const templateType: AttendanceTemplateType =
-        request.query.templateType === "WORKING_AT_HEIGHT"
-          ? "WORKING_AT_HEIGHT"
-          : "ISG_BASIC";
+      const rawTemplateType = String(request.query.templateType ?? "")
+        .trim()
+        .toUpperCase();
+      if (
+        rawTemplateType !== "ISG_BASIC" &&
+        rawTemplateType !== "WORKING_AT_HEIGHT"
+      ) {
+        throw new HttpError(
+          400,
+          "templateType ISG_BASIC veya WORKING_AT_HEIGHT olmalıdır."
+        );
+      }
+      const templateType = rawTemplateType as AttendanceTemplateType;
 
       const prisma = await getPrisma();
       const training = await prisma.training.findUnique({
@@ -57,16 +66,23 @@ router.get(
         throw new HttpError(409, "Bu eğitim için katılım formu akışı etkin değil.");
       }
 
+      const organizationName =
+        process.env.ORGANIZATION_NAME?.trim() ||
+        "ARTEMİS ARITIM SAN. VE TİC. A.Ş.";
       const input: AttendancePdfInput = {
         templateType,
+        trainingTitle: training.title,
+        trainingTopic: training.description,
         trainingDate: training.trainingDate,
-        organizationName:
-          process.env.ORGANIZATION_NAME?.trim() ||
-          "ARTEMİS ARITIM SAN. VE TİC. A.Ş.",
-        durationHours: training.durationMinutes / 60,
+        trainingLocation: training.location,
+        trainingFormat: training.trainingFormat,
+        organizationName,
+        durationMinutes: training.durationMinutes,
         documentTitle: training.title,
         participants: training.assignments.map((assignment: any) => ({
-          fullName: assignment.user.name ?? assignment.user.email ?? "Çalışan",
+          fullName: String(
+            assignment.user.name ?? assignment.user.email ?? "Çalışan"
+          ).trim(),
           title: assignment.user.title,
           result: assignment.attempts[0]?.score ?? null,
         })),
@@ -83,7 +99,11 @@ router.get(
         uploadedById: request.auth?.userId ?? null,
         type: "ATTENDANCE_FORM",
         status: "AWAITING_SIGNATURE",
-        title: `${training.title} Katılım Formu`,
+        title: `${training.title} ${
+          templateType === "ISG_BASIC"
+            ? "İSG Katılım Tutanağı"
+            : "Yüksekte Çalışma Katılım Tutanağı"
+        }`,
         originalName: fileName,
         mimeType: "application/pdf",
         buffer: pdfBuffer,
