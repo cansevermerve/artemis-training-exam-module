@@ -51,13 +51,11 @@ export interface SaveTrainingInput {
     hasTrainingContent?: boolean;
     mustCompleteContent?: boolean;
     hasExam?: boolean;
-    hasCertificate?: boolean;
     hasAttendanceForm?: boolean;
   };
   hasTrainingContent?: boolean;
   mustCompleteContent?: boolean;
   hasExam?: boolean;
-  hasCertificate?: boolean;
   hasAttendanceForm?: boolean;
   exam?: {
     passingScore?: number;
@@ -74,8 +72,6 @@ export interface SaveTrainingInput {
   shuffleQuestions?: boolean;
   shuffleOptions?: boolean;
   showCorrectAnswers?: boolean;
-  certificate?: { minimumScore?: number | null } | null;
-  certificateMinimumScore?: number | null;
   contents?: TrainingContentInput[];
   questions?: TrainingQuestionInput[];
 }
@@ -226,7 +222,6 @@ function normalizeTrainingInput(input: SaveTrainingInput) {
   const exam = input.exam ?? undefined;
   const hasTrainingContent = flow.hasTrainingContent ?? input.hasTrainingContent ?? true;
   const hasExam = flow.hasExam ?? input.hasExam ?? true;
-  const hasCertificate = flow.hasCertificate ?? input.hasCertificate ?? false;
   const hasAttendanceForm = flow.hasAttendanceForm ?? input.hasAttendanceForm ?? false;
   const durationTotal = input.durationHours !== undefined
     ? input.durationHours * 60 + (input.durationMinutes ?? 0)
@@ -240,12 +235,6 @@ function normalizeTrainingInput(input: SaveTrainingInput) {
   validateUniqueOrders(contents, "İçerik");
 
   const passingScore = clampInteger(exam?.passingScore ?? input.passingScore, 70, 0, 100, "Geçme puanı");
-  const certificateMinimumScore = input.certificate?.minimumScore ?? input.certificateMinimumScore ?? null;
-  if (certificateMinimumScore !== null && (!Number.isInteger(certificateMinimumScore) || certificateMinimumScore < passingScore || certificateMinimumScore > 100)) {
-    throw new HttpError(400, "Sertifika puanı geçme puanından düşük veya 100'den yüksek olamaz.");
-  }
-  if (hasCertificate && !hasExam) throw new HttpError(400, "Sertifika için sınav akışı açık olmalıdır.");
-
   return {
     isDraft,
     questionsProvided,
@@ -265,7 +254,6 @@ function normalizeTrainingInput(input: SaveTrainingInput) {
       hasTrainingContent,
       mustCompleteContent: hasTrainingContent && (flow.mustCompleteContent ?? input.mustCompleteContent ?? true),
       hasExam,
-      hasCertificate,
       hasAttendanceForm,
       passingScore,
       attemptLimit: clampInteger(exam?.attemptLimit ?? input.attemptLimit, 1, 1, 100, "Deneme limiti"),
@@ -273,7 +261,6 @@ function normalizeTrainingInput(input: SaveTrainingInput) {
       shuffleQuestions: exam?.shuffleQuestions ?? input.shuffleQuestions ?? false,
       shuffleOptions: exam?.shuffleOptions ?? input.shuffleOptions ?? false,
       showCorrectAnswers: exam?.showCorrectAnswersAfterExam ?? input.showCorrectAnswers ?? false,
-      certificateMinimumScore,
       createdById,
     },
     contents,
@@ -348,9 +335,6 @@ async function validatePublishState(tx: PrismaClientLike, trainingId: string): P
     )
   ) {
     throw new HttpError(400, "Yayınlanan sınavda her şıkta metin veya görsel bulunmalıdır.");
-  }
-  if (training.hasCertificate && !training.hasExam) {
-    throw new HttpError(400, "Sertifika akışı sınav olmadan yayınlanamaz.");
   }
 }
 

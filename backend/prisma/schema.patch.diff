@@ -8,10 +8,10 @@
  
    @@map("User")
  }
-@@ -65,6 +66,7 @@
+@@ -64,6 +65,7 @@
+   shuffleQuestions        Boolean   @default(false)
    shuffleOptions          Boolean   @default(false)
    showCorrectAnswers      Boolean   @default(false)
-   certificateMinimumScore Int?
 +  coverImageUrl           String?
    createdById             String
    createdAt               DateTime  @default(now())

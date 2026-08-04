@@ -705,10 +705,6 @@ export async function getAttemptResult(attemptId: string) {
       title: attempt.assignment.training.title,
       passingScore: attempt.assignment.training.passingScore,
       showCorrectAnswers: attempt.assignment.training.showCorrectAnswers,
-      hasCertificate: attempt.assignment.training.hasCertificate,
-      certificateMinimumScore:
-        attempt.assignment.training.certificateMinimumScore ??
-        attempt.assignment.training.passingScore,
     },
     attemptNumber: attempt.attemptNumber,
     status: attempt.status,
@@ -723,19 +719,13 @@ export async function getAttemptResult(attemptId: string) {
     completedAt: attempt.submittedAt,
     durationSeconds: attempt.durationSeconds ?? 0,
     remainingAttempts: Math.max(0, attempt.assignment.training.attemptLimit - attempt.attemptNumber),
-    certificateEligible:
-      attempt.assignment.training.hasCertificate &&
-      (attempt.passed ?? false) &&
-      (attempt.score ?? 0) >=
-        (attempt.assignment.training.certificateMinimumScore ??
-          attempt.assignment.training.passingScore),
+    certificateStatus: !(attempt.passed ?? false)
+      ? "NOT_ELIGIBLE"
+      : certificate
+        ? "READY"
+        : "PREPARING",
     certificateUrl:
-      certificate &&
-      attempt.assignment.training.hasCertificate &&
-      (attempt.passed ?? false) &&
-      (attempt.score ?? 0) >=
-        (attempt.assignment.training.certificateMinimumScore ??
-          attempt.assignment.training.passingScore)
+      certificate && (attempt.passed ?? false)
         ? `/documents/${certificate.id}/preview`
         : null,
   };

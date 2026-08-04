@@ -57,7 +57,6 @@ model Training {
   hasTrainingContent      Boolean   @default(true)
   mustCompleteContent     Boolean   @default(true)
   hasExam                 Boolean   @default(true)
-  hasCertificate          Boolean   @default(false)
   hasAttendanceForm       Boolean   @default(false)
   passingScore            Int       @default(70)
   attemptLimit            Int       @default(1)
@@ -65,7 +64,6 @@ model Training {
   shuffleQuestions        Boolean   @default(false)
   shuffleOptions          Boolean   @default(false)
   showCorrectAnswers      Boolean   @default(false)
-  certificateMinimumScore Int?
   coverImageUrl           String?
   createdById             String
   createdAt               DateTime  @default(now())

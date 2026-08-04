@@ -382,20 +382,15 @@ export async function saveOsgbCertificate(input: SaveDocumentInput) {
   const prisma = await getPrisma();
   const training = await prisma.training.findUnique({
     where: { id: input.trainingId },
-    select: {
-      hasCertificate: true,
-      passingScore: true,
-      certificateMinimumScore: true,
-    },
+    select: { hasExam: true },
   });
   if (!training) throw new HttpError(404, "Eğitim bulunamadı.");
-  if (!training.hasCertificate) {
-    throw new HttpError(409, "Bu eğitim için sertifika akışı etkin değil.");
+  if (!training.hasExam) {
+    throw new HttpError(409, "Sınavı olmayan bir eğitim için OSGB sertifikası yüklenemez.");
   }
-  const minimumScore = training.certificateMinimumScore ?? training.passingScore;
   const whereAttempt = {
     status: "PASSED",
-    score: { gte: minimumScore },
+    passed: true,
     assignment: { userId: input.employeeId, trainingId: input.trainingId, cancelledAt: null },
   };
   const attempt = input.attemptId
@@ -411,7 +406,7 @@ export async function saveOsgbCertificate(input: SaveDocumentInput) {
   if (!attempt) {
     throw new HttpError(
       409,
-      `OSGB sertifikası için en az ${minimumScore} puanlı başarılı sınav denemesi gereklidir.`
+      "OSGB sertifikası yalnızca sınavı başarıyla tamamlayan katılımcıya yüklenebilir."
     );
   }
   if (input.assignmentId && input.assignmentId !== attempt.assignmentId) {
@@ -506,9 +501,7 @@ export async function getParticipantTrainingFile(trainingId: string, employeeId:
           title: true,
           category: true,
           hasExam: true,
-          hasCertificate: true,
           passingScore: true,
-          certificateMinimumScore: true,
         },
       },
       attempts: {

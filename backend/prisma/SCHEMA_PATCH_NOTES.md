@@ -6,6 +6,13 @@ Uygulanabilir diff dosyası: `backend/prisma/schema.patch.diff`
 
 ## Eklenen veya değiştirilen alanlar
 
+### Sertifika akışı
+
+- `hasCertificate` ve `certificateMinimumScore` uygulama şemasından kaldırıldı.
+- Sertifika hakkı ayrı bir ayarla değil, tamamlanmış denemenin `PASSED` durumu ile belirlenir.
+- OSGB sertifikası sistem tarafından üretilmez; yalnızca başarılı denemeye sonradan yüklenen PDF belge olarak saklanır.
+- Mevcut veritabanında eski sütunlar bulunuyorsa yeni uygulama bunları kullanmaz; fiziksel sütun kaldırma işlemi ayrı ve kontrollü bir migration ile yapılmalıdır.
+
 ### `Training`
 
 - `coverImageUrl String?`
