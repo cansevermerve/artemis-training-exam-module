@@ -179,10 +179,10 @@ function TestPage() {
           </div>
 
           <h2 className="mt-5 text-base font-semibold leading-7 text-gray-900 dark:text-gray-100 sm:text-lg">{currentQuestion.text}</h2>
-          {protectedQuestionImage && <img src={protectedQuestionImage} alt="Soru görseli" className="mt-4 max-h-80 rounded-lg object-contain" />}
+          {protectedQuestionImage && <img src={protectedQuestionImage} alt="Soru görseli" className="mt-4 max-h-52 max-w-full rounded-lg object-contain" />}
           {imageError && <p className="mt-3 text-xs text-red-600">Soru görseli yüklenemedi: {imageError}</p>}
 
-          <div className={hasImageOptions ? "mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" : "mt-6 space-y-3"}>
+          <div className={hasImageOptions ? "mt-6 grid grid-cols-[repeat(auto-fit,minmax(105px,1fr))] gap-2" : "mt-6 space-y-3"}>
             {currentQuestion.options.map((option, index) => {
               const isSelected = (answers[currentQuestion.id] ?? []).includes(option.id);
               const optionLetter = String.fromCharCode(65 + index);
@@ -195,22 +195,22 @@ function TestPage() {
                     type="button"
                     disabled={optionDisabled}
                     onClick={() => selectOption(option.id)}
-                    className={`flex h-full min-h-44 w-full flex-col rounded-xl border p-3 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${isSelected ? "border-gray-800 bg-gray-800 text-white shadow-sm dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900" : "border-gray-200 bg-white text-gray-800 hover:border-gray-400 hover:shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"}`}
+                    className={`flex h-full min-h-0 w-full flex-col rounded-lg border p-2 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-60 ${isSelected ? "border-gray-800 bg-gray-800 text-white shadow-sm dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900" : "border-gray-200 bg-white text-gray-800 hover:border-gray-400 hover:shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"}`}
                   >
-                    <span className="flex min-w-0 items-start gap-2">
-                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? "border-white bg-white text-gray-900 dark:border-gray-800 dark:bg-gray-800 dark:text-white" : "border-gray-300 dark:border-gray-600"}`}>
+                    <span className="flex min-h-8 min-w-0 items-start gap-1.5">
+                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold ${isSelected ? "border-white bg-white text-gray-900 dark:border-gray-800 dark:bg-gray-800 dark:text-white" : "border-gray-300 dark:border-gray-600"}`}>
                         {optionLetter}
                       </span>
-                      {option.text && <span className="min-w-0 flex-1 leading-5">{option.text}</span>}
+                      {option.text && <span className="min-w-0 flex-1 break-words leading-4">{option.text}</span>}
                     </span>
 
                     {option.imageUrl && (
-                      <span className={`mt-3 flex min-h-28 w-full flex-1 items-center justify-center rounded-lg p-2 ${isSelected ? "bg-white/95 dark:bg-white" : "bg-gray-50 dark:bg-gray-900/60"}`}>
+                      <span className={`mt-1.5 flex h-20 w-full items-center justify-center overflow-hidden rounded-md p-1 ${isSelected ? "bg-white/95 dark:bg-white" : "bg-gray-50 dark:bg-gray-900/60"}`}>
                         <ProtectedAssetImage
                           endpoint={option.imageUrl}
                           alt={`${optionLetter} şıkkı görseli`}
-                          className="max-h-36 w-full object-contain"
-                          errorClassName="text-xs text-red-600 dark:text-red-400"
+                          className="max-h-16 max-w-full object-contain"
+                          errorClassName="text-[10px] text-red-600 dark:text-red-400"
                         />
                       </span>
                     )}
