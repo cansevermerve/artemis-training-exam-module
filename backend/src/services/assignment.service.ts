@@ -72,9 +72,6 @@ export async function createAssignments(trainingId: string, input: CreateAssignm
         select: { id: true, isActive: true, isDraft: true, attemptLimit: true },
       });
       if (!training) throw new HttpError(404, "Eğitim bulunamadı.");
-      if (training.isDraft || !training.isActive) {
-        throw new HttpError(409, "Yalnızca yayınlanmış ve aktif eğitim atanabilir.");
-      }
       const users = await tx.user.findMany({
         where: { id: { in: userIds }, isActive: true },
         select: { id: true },
@@ -160,9 +157,6 @@ export async function syncAssignments(trainingId: string, input: CreateAssignmen
       select: { id: true, isActive: true, isDraft: true, attemptLimit: true },
     });
     if (!training) throw new HttpError(404, "Eğitim bulunamadı.");
-    if (training.isDraft || !training.isActive) {
-      throw new HttpError(409, "Yalnızca yayınlanmış ve aktif eğitimin katılımcıları yönetilebilir.");
-    }
 
     if (userIds.length) {
       const users = await tx.user.findMany({

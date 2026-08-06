@@ -8,7 +8,11 @@
     "build": "tsc && node scripts/copy-pdf-templates.mjs",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "prisma:validate": "prisma validate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:db:push": "prisma db push"
   },
   "keywords": [],
   "author": "",

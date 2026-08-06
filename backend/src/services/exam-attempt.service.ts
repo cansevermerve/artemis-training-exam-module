@@ -689,6 +689,257 @@ export async function correctAttemptResult(
   return getAdminAttemptReview(attemptId);
 }
 
+
+export interface AnswerKeyRecalculationSummary {
+  affectedAttemptCount: number;
+  changedAttemptCount: number;
+  reviewRequiredCertificateCount: number;
+  staleFilePaths: string[];
+}
+
+/**
+ * Yenilenen cevap anahtarını, seçili eğitime ait tamamlanmış bütün sınav
+ * denemelerine uygular. Bu fonksiyon mevcut transaction içinde çalışır;
+ * fiziksel dosya silme işlemi transaction tamamlandıktan sonra çağıran servis
+ * tarafından yapılmalıdır.
+ */
+export async function recalculateTrainingAttemptsAfterAnswerKeyChange(
+  tx: PrismaClientLike,
+  trainingId: string,
+  editedById: string,
+  reason = "Cevap anahtarı güncellendiği için sınav sonucu sistem tarafından yeniden değerlendirildi."
+): Promise<AnswerKeyRecalculationSummary> {
+  const training = await tx.training.findUnique({
+    where: { id: trainingId },
+    include: {
+      questions: {
+        orderBy: { order: "asc" },
+        include: { options: { orderBy: { order: "asc" } } },
+      },
+      assignments: {
+        include: {
+          attempts: {
+            orderBy: { attemptNumber: "asc" },
+            include: {
+              answers: {
+                include: { selectedOptions: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!training) throw new HttpError(404, "Eğitim bulunamadı.");
+  if (!training.questions.length) {
+    throw new HttpError(409, "Yeniden değerlendirilecek sınav sorusu bulunamadı.");
+  }
+
+  const now = new Date();
+  const completedAttemptIds: string[] = [];
+  let changedAttemptCount = 0;
+  let reviewRequiredCertificateCount = 0;
+
+  for (const assignment of training.assignments as any[]) {
+    const recalculatedStatuses = new Map<string, { status: string; passed: boolean }>();
+
+    for (const attempt of assignment.attempts as any[]) {
+      if (attempt.status === "IN_PROGRESS" || !attempt.submittedAt) continue;
+      completedAttemptIds.push(attempt.id);
+
+      const previousAnswers = resultAnswerSnapshot(attempt);
+      const evaluation = evaluateAnswers(
+        training.questions,
+        persistedAnswerMap(attempt)
+      );
+      const newPassed = evaluation.score >= training.passingScore;
+      const newStatus = newPassed ? "PASSED" : "FAILED";
+
+      const evaluationChanged = evaluation.answers.some((evaluated) => {
+        const existingAnswer = attempt.answers.find(
+          (answer: any) => answer.questionId === evaluated.questionId
+        );
+        return !existingAnswer ||
+          existingAnswer.isCorrect !== evaluated.isCorrect ||
+          existingAnswer.earnedPoints !== evaluated.earnedPoints;
+      });
+      const resultChanged =
+        attempt.status !== newStatus ||
+        attempt.passed !== newPassed ||
+        attempt.totalPoints !== evaluation.totalPoints ||
+        attempt.score !== evaluation.score ||
+        attempt.correctCount !== evaluation.correctCount ||
+        attempt.wrongCount !== evaluation.wrongCount ||
+        attempt.unansweredCount !== evaluation.unansweredCount;
+
+      for (const evaluated of evaluation.answers) {
+        const answer = attempt.answers.find(
+          (record: any) => record.questionId === evaluated.questionId
+        );
+        if (!answer) throw new HttpError(409, "Sınav cevap kaydı eksik.");
+        await tx.examAnswer.update({
+          where: { id: answer.id },
+          data: {
+            isCorrect: evaluated.isCorrect,
+            earnedPoints: evaluated.earnedPoints,
+          },
+        });
+      }
+
+      await tx.examAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: newStatus,
+          totalPoints: evaluation.totalPoints,
+          score: evaluation.score,
+          passed: newPassed,
+          correctCount: evaluation.correctCount,
+          wrongCount: evaluation.wrongCount,
+          unansweredCount: evaluation.unansweredCount,
+        },
+      });
+
+      if (evaluationChanged || resultChanged) {
+        changedAttemptCount += 1;
+        const answeredAtByQuestion = new Map(
+          attempt.answers.map((answer: any) => [
+            answer.questionId,
+            answer.answeredAt ? new Date(answer.answeredAt).toISOString() : null,
+          ])
+        );
+        const newAnswers = evaluation.answers
+          .map((answer) => ({
+            questionId: answer.questionId,
+            selectedOptionIds: [...answer.selectedOptionIds].sort(),
+            isCorrect: answer.isCorrect,
+            earnedPoints: answer.earnedPoints,
+            answeredAt: answeredAtByQuestion.get(answer.questionId) ?? null,
+          }))
+          .sort((left, right) => left.questionId.localeCompare(right.questionId));
+
+        await tx.examResultAudit.create({
+          data: {
+            attemptId: attempt.id,
+            editedById,
+            reason,
+            previousStatus: attempt.status,
+            newStatus,
+            previousScore: attempt.score,
+            newScore: evaluation.score,
+            previousPassed: attempt.passed,
+            newPassed,
+            previousCorrectCount: attempt.correctCount,
+            newCorrectCount: evaluation.correctCount,
+            previousWrongCount: attempt.wrongCount,
+            newWrongCount: evaluation.wrongCount,
+            previousUnansweredCount: attempt.unansweredCount,
+            newUnansweredCount: evaluation.unansweredCount,
+            previousAnswers,
+            newAnswers,
+          },
+        });
+      }
+
+      const certificates = await tx.trainingDocument.findMany({
+        where: {
+          attemptId: attempt.id,
+          type: "OSGB_CERTIFICATE",
+        },
+        select: { id: true, title: true },
+      });
+      const reviewPrefix = "İnceleme Gerekli - ";
+      for (const certificate of certificates as any[]) {
+        if (!newPassed && !certificate.title.startsWith(reviewPrefix)) {
+          await tx.trainingDocument.update({
+            where: { id: certificate.id },
+            data: { title: `${reviewPrefix}${certificate.title}` },
+          });
+          reviewRequiredCertificateCount += 1;
+        } else if (newPassed && certificate.title.startsWith(reviewPrefix)) {
+          await tx.trainingDocument.update({
+            where: { id: certificate.id },
+            data: {
+              title: certificate.title.slice(reviewPrefix.length).trim() || "OSGB Sertifikası",
+            },
+          });
+        }
+      }
+
+      recalculatedStatuses.set(attempt.id, {
+        status: newStatus,
+        passed: newPassed,
+      });
+    }
+
+    if (recalculatedStatuses.size > 0) {
+      const effectiveAttempts = (assignment.attempts as any[]).map((attempt) => {
+        const recalculated = recalculatedStatuses.get(attempt.id);
+        return recalculated
+          ? { ...attempt, ...recalculated }
+          : attempt;
+      });
+      const hasPassedAttempt = effectiveAttempts.some(
+        (attempt) => attempt.passed === true || attempt.status === "PASSED"
+      );
+      const completedAttemptCount = effectiveAttempts.filter(
+        (attempt) => attempt.status !== "IN_PROGRESS"
+      ).length;
+      const hasInProgressAttempt = effectiveAttempts.some(
+        (attempt) => attempt.status === "IN_PROGRESS"
+      );
+      const nextAssignmentStatus = hasPassedAttempt
+        ? "COMPLETED"
+        : completedAttemptCount >= training.attemptLimit && !hasInProgressAttempt
+          ? "FAILED"
+          : "IN_PROGRESS";
+
+      await tx.trainingAssignment.update({
+        where: { id: assignment.id },
+        data: {
+          status: nextAssignmentStatus,
+          completedAt: hasPassedAttempt
+            ? assignment.completedAt ?? now
+            : null,
+        },
+      });
+    }
+  }
+
+  let staleFilePaths: string[] = [];
+  if (completedAttemptIds.length > 0) {
+    const staleDocuments = await tx.trainingDocument.findMany({
+      where: {
+        isGenerated: true,
+        OR: [
+          {
+            trainingId,
+            type: { in: ["RESULTS_REPORT", "PARTICIPANT_LIST"] },
+          },
+          {
+            attemptId: { in: completedAttemptIds },
+            type: "PARTICIPANT_ANSWER",
+          },
+        ],
+      },
+      select: { id: true, filePath: true },
+    });
+    if (staleDocuments.length > 0) {
+      await tx.trainingDocument.deleteMany({
+        where: { id: { in: staleDocuments.map((document: any) => document.id) } },
+      });
+      staleFilePaths = staleDocuments.map((document: any) => document.filePath);
+    }
+  }
+
+  return {
+    affectedAttemptCount: completedAttemptIds.length,
+    changedAttemptCount,
+    reviewRequiredCertificateCount,
+    staleFilePaths,
+  };
+}
+
 export async function getAttemptResult(attemptId: string) {
   const prisma = await getPrisma();
   const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId }, include: attemptInclude });

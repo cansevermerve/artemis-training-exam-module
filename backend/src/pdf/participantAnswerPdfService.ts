@@ -77,7 +77,7 @@ const CONTENT_TOP = 107.2;
 const CONTENT_BOTTOM = 49.0;
 
 const QUESTION_FONT_SIZE = 9.1;
-const OPTION_FONT_SIZE = 9.0;
+const OPTION_FONT_SIZE = 9.4;
 const LINE_HEIGHT = 10.7;
 
 const OPTION_LEFT_GUTTER = 8.5;
@@ -100,10 +100,10 @@ const OPTION_IMAGE_BOTTOM_GAP = 3;
 // Tüm şıkların görseli varsa küçük görseller aynı satırda yan yana yerleştirilir.
 const OPTION_IMAGE_GRID_MAX_COLUMNS = 4;
 const OPTION_IMAGE_GRID_GAP = 4;
-const OPTION_IMAGE_GRID_FONT_SIZE = 7.2;
-const OPTION_IMAGE_GRID_LINE_HEIGHT = 8.2;
+const OPTION_IMAGE_GRID_FONT_SIZE = 9.0;
+const OPTION_IMAGE_GRID_LINE_HEIGHT = 10.2;
 const OPTION_IMAGE_GRID_LABEL_GAP = 1.5;
-const OPTION_IMAGE_GRID_MAX_HEIGHT = 46;
+const OPTION_IMAGE_GRID_MAX_HEIGHT = 48;
 const OPTION_IMAGE_GRID_ROW_GAP = 4;
 const OPTION_IMAGE_GRID_MARKER_GUTTER = 5;
 
@@ -373,23 +373,17 @@ function getOptionImageGridCellWidth(
 }
 
 function getOptionImageGridLabelLines(
-  option: ParticipantAnswerPdfOption,
+  _option: ParticipantAnswerPdfOption,
   optionIndex: number,
   fonts: EmbeddedFonts,
-  cellWidth: number
+  _cellWidth: number
 ): WrappedLine[] {
   const letter = OPTION_LETTERS[optionIndex] ?? `${optionIndex + 1}`;
-  const label = option.text?.trim()
-    ? `${letter}) ${option.text}`
-    : `${letter})`;
-  const lines = wrapText(
-    label,
-    fonts.regular,
-    OPTION_IMAGE_GRID_FONT_SIZE,
-    Math.max(1, cellWidth - OPTION_IMAGE_GRID_MARKER_GUTTER)
-  );
-
-  return lines.length ? lines : [{ text: label, width: 0 }];
+  const label = `${letter})`;
+  return [{
+    text: label,
+    width: fonts.bold.widthOfTextAtSize(label, OPTION_IMAGE_GRID_FONT_SIZE),
+  }];
 }
 
 function measureQuestionHeight(
@@ -411,30 +405,14 @@ function measureQuestionHeight(
 
   if (shouldUseOptionImageGrid(options)) {
     const columnCount = getOptionImageGridColumnCount(options);
-    const cellWidth = getOptionImageGridCellWidth(options);
-
-    for (let rowStart = 0; rowStart < options.length; rowStart += columnCount) {
-      const rowOptions = options.slice(rowStart, rowStart + columnCount);
-      const maximumLabelLineCount = Math.max(
-        1,
-        ...rowOptions.map((option, rowIndex) =>
-          getOptionImageGridLabelLines(
-            option,
-            rowStart + rowIndex,
-            fonts,
-            cellWidth
-          ).length
-        )
-      );
-
-      height +=
-        maximumLabelLineCount * OPTION_IMAGE_GRID_LINE_HEIGHT +
-        OPTION_IMAGE_GRID_LABEL_GAP +
-        OPTION_IMAGE_GRID_MAX_HEIGHT;
-
-      if (rowStart + columnCount < options.length) {
-        height += OPTION_IMAGE_GRID_ROW_GAP;
-      }
+    const rowCount = Math.ceil(options.length / columnCount);
+    height += rowCount * (
+      OPTION_IMAGE_GRID_MAX_HEIGHT +
+      OPTION_IMAGE_GRID_LABEL_GAP +
+      OPTION_IMAGE_GRID_LINE_HEIGHT
+    );
+    if (rowCount > 1) {
+      height += (rowCount - 1) * OPTION_IMAGE_GRID_ROW_GAP;
     }
   } else {
     options.forEach((option, index) => {
@@ -644,118 +622,65 @@ async function drawAnsweredQuestion(
 
     for (let rowStart = 0; rowStart < options.length; rowStart += columnCount) {
       const rowOptions = options.slice(rowStart, rowStart + columnCount);
-      const labelLinesByOption = rowOptions.map((option, rowIndex) =>
-        getOptionImageGridLabelLines(
-          option,
-          rowStart + rowIndex,
-          fonts,
-          cellWidth
-        )
-      );
-      const maximumLabelLineCount = Math.max(
-        1,
-        ...labelLinesByOption.map((lines) => lines.length)
-      );
-      const labelHeight =
-        maximumLabelLineCount * OPTION_IMAGE_GRID_LINE_HEIGHT;
-      const imageSlotTop =
-        currentTop + labelHeight + OPTION_IMAGE_GRID_LABEL_GAP;
+      const imageSlotTop = currentTop;
+      const labelTop = imageSlotTop + OPTION_IMAGE_GRID_MAX_HEIGHT + OPTION_IMAGE_GRID_LABEL_GAP;
 
       for (let columnIndex = 0; columnIndex < rowOptions.length; columnIndex += 1) {
         const option = rowOptions[columnIndex];
-        const cellX =
-          x + columnIndex * (cellWidth + OPTION_IMAGE_GRID_GAP);
-        const labelX = cellX + OPTION_IMAGE_GRID_MARKER_GUTTER;
-        const labelLines = labelLinesByOption[columnIndex];
-        const isSelected =
-          answer?.selectedOptionIds?.includes(option.id) ?? false;
-
-        if (option.isCorrect) {
-          labelLines.forEach((line, lineIndex) => {
-            if (!line.text) return;
-            const lineTop =
-              currentTop + lineIndex * OPTION_IMAGE_GRID_LINE_HEIGHT;
-            page.drawRectangle({
-              x: labelX - 1,
-              y: topToPdfY(
-                lineTop + OPTION_IMAGE_GRID_FONT_SIZE + 1
-              ),
-              width: Math.min(
-                line.width + 2,
-                cellWidth - OPTION_IMAGE_GRID_MARKER_GUTTER
-              ),
-              height: OPTION_IMAGE_GRID_FONT_SIZE + 2,
-              color: CORRECT_HIGHLIGHT,
-              borderWidth: 0,
-            });
-          });
-        }
-
-        if (isSelected) {
-          page.drawCircle({
-            x: cellX + SELECTED_MARKER_RADIUS,
-            y: topToPdfY(
-              currentTop + OPTION_IMAGE_GRID_LINE_HEIGHT / 2
-            ),
-            size: SELECTED_MARKER_RADIUS,
-            color: BLACK,
-          });
-        }
-
-        labelLines.forEach((line, lineIndex) => {
-          page.drawText(line.text, {
-            x: labelX,
-            y: topToPdfY(
-              currentTop +
-              OPTION_IMAGE_GRID_FONT_SIZE +
-              lineIndex * OPTION_IMAGE_GRID_LINE_HEIGHT
-            ),
-            size: OPTION_IMAGE_GRID_FONT_SIZE,
-            font: fonts.regular,
-            color: BLACK,
-          });
-        });
-
-        const embeddedOptionImage = await embedQuestionImage(
-          outputPdf,
-          option.imageUrl!
-        );
+        const optionIndex = rowStart + columnIndex;
+        const cellX = x + columnIndex * (cellWidth + OPTION_IMAGE_GRID_GAP);
+        const isSelected = answer?.selectedOptionIds?.includes(option.id) ?? false;
+        const embeddedOptionImage = await embedQuestionImage(outputPdf, option.imageUrl!);
 
         if (embeddedOptionImage) {
           const imageSize = getContainedImageSize(
             embeddedOptionImage,
-            Math.max(1, cellWidth - 4),
+            Math.max(1, cellWidth - 3),
             OPTION_IMAGE_GRID_MAX_HEIGHT
           );
           const imageX = cellX + (cellWidth - imageSize.width) / 2;
-          const imageTop =
-            imageSlotTop +
-            (OPTION_IMAGE_GRID_MAX_HEIGHT - imageSize.height) / 2;
-          const imageY = topToPdfY(imageTop + imageSize.height);
-
+          const imageTop = imageSlotTop + (OPTION_IMAGE_GRID_MAX_HEIGHT - imageSize.height) / 2;
           page.drawImage(embeddedOptionImage, {
             x: imageX,
-            y: imageY,
+            y: topToPdfY(imageTop + imageSize.height),
             width: imageSize.width,
             height: imageSize.height,
           });
-
-          if (option.isCorrect) {
-            page.drawRectangle({
-              x: imageX - 1.2,
-              y: imageY - 1.2,
-              width: imageSize.width + 2.4,
-              height: imageSize.height + 2.4,
-              borderColor: CORRECT_HIGHLIGHT,
-              borderWidth: 1.5,
-            });
-          }
         }
 
+        const letter = OPTION_LETTERS[optionIndex] ?? `${optionIndex + 1}`;
+        const label = `${letter})`;
+        const labelWidth = fonts.bold.widthOfTextAtSize(label, OPTION_IMAGE_GRID_FONT_SIZE);
+        const labelX = cellX + (cellWidth - labelWidth) / 2;
+
+        if (option.isCorrect) {
+          page.drawRectangle({
+            x: labelX - 1.5,
+            y: topToPdfY(labelTop + OPTION_IMAGE_GRID_FONT_SIZE + 1),
+            width: labelWidth + 3,
+            height: OPTION_IMAGE_GRID_FONT_SIZE + 2,
+            color: CORRECT_HIGHLIGHT,
+            borderWidth: 0,
+          });
+        }
+        if (isSelected) {
+          page.drawCircle({
+            x: labelX - SELECTED_MARKER_RADIUS - 1.5,
+            y: topToPdfY(labelTop + OPTION_IMAGE_GRID_FONT_SIZE / 2 + 1),
+            size: SELECTED_MARKER_RADIUS,
+            color: BLACK,
+          });
+        }
+        page.drawText(label, {
+          x: labelX,
+          y: topToPdfY(labelTop + OPTION_IMAGE_GRID_FONT_SIZE),
+          size: OPTION_IMAGE_GRID_FONT_SIZE,
+          font: fonts.bold,
+          color: BLACK,
+        });
       }
 
-      currentTop = imageSlotTop + OPTION_IMAGE_GRID_MAX_HEIGHT;
-
+      currentTop = labelTop + OPTION_IMAGE_GRID_LINE_HEIGHT;
       if (rowStart + columnCount < options.length) {
         currentTop += OPTION_IMAGE_GRID_ROW_GAP;
       }

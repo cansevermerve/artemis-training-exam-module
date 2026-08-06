@@ -1,7 +1,8 @@
 import { getPrisma, type PrismaClientLike } from "../lib/prisma.js";
-import { deleteDocumentIfUnreferenced, deleteStoredDocument } from "./document.service.js";
+import { deleteDocumentIfUnreferenced, deleteStoredDocument, removeStoredDocumentFiles } from "./document.service.js";
 import { HttpError, isPrismaKnownRequestError } from "../utils/http-error.js";
 import { buildPaginatedResult } from "../utils/pagination.js";
+import { recalculateTrainingAttemptsAfterAnswerKeyChange } from "./exam-attempt.service.js";
 
 export interface TrainingQuestionInput {
   id?: string;
@@ -74,6 +75,11 @@ export interface SaveTrainingInput {
   showCorrectAnswers?: boolean;
   contents?: TrainingContentInput[];
   questions?: TrainingQuestionInput[];
+  /**
+   * Cevap anahtarı değiştiğinde tamamlanmış denemelerin yeniden
+   * değerlendirilmesini yöneticinin açıkça onayladığını belirtir.
+   */
+  recalculateResults?: boolean;
 }
 
 function hasOwn(value: object | null | undefined, key: string): boolean {
@@ -161,6 +167,7 @@ function normalizeQuestion(
     throw new HttpError(400, "Çok seçimli soruda en az bir doğru seçenek olmalıdır.");
   }
   return {
+    id: question.id?.trim() || undefined,
     text,
     explanation: question.explanation?.trim() || null,
     type,
@@ -288,6 +295,34 @@ function canonicalQuestions(questions: any[]): string {
       imageUrl: option.imageUrl ?? null,
       order: option.order,
       isCorrect: option.isCorrect,
+    })),
+  })).sort((a, b) => a.order - b.order));
+}
+
+function canonicalQuestionStructure(questions: any[]): string {
+  return JSON.stringify(questions.map((question) => ({
+    id: question.id ?? null,
+    text: question.text,
+    explanation: question.explanation ?? null,
+    type: question.type,
+    points: question.points,
+    order: question.order,
+    imageUrl: question.imageUrl ?? null,
+    options: [...question.options].sort((a, b) => a.order - b.order).map((option) => ({
+      text: option.text ?? null,
+      imageUrl: option.imageUrl ?? null,
+      order: option.order,
+    })),
+  })).sort((a, b) => a.order - b.order));
+}
+
+function canonicalAnswerKey(questions: any[]): string {
+  return JSON.stringify(questions.map((question) => ({
+    id: question.id ?? null,
+    order: question.order,
+    options: [...question.options].sort((a, b) => a.order - b.order).map((option) => ({
+      order: option.order,
+      isCorrect: Boolean(option.isCorrect),
     })),
   })).sort((a, b) => a.order - b.order));
 }
@@ -464,6 +499,7 @@ export async function updateTraining(id: string, input: SaveTrainingInput) {
   const prisma = await getPrisma();
   const normalized = normalizeTrainingInput(input);
   const possibleOrphanDocumentIds = new Set<string>();
+  let staleGeneratedFilePaths: string[] = [];
   try {
     const updated = await prisma.$transaction(async (tx: PrismaClientLike) => {
       const existing = await tx.training.findUnique({
@@ -483,7 +519,11 @@ export async function updateTraining(id: string, input: SaveTrainingInput) {
       if (!existing) throw new HttpError(404, "Eğitim bulunamadı.");
       const hasAttempt = existing.assignments.some((item: any) => item.attempts.length > 0);
       const hasStartedAssignment = existing.assignments.some((item: any) => item.startedAt || item.contentProgress.length || item.attempts.length);
-      const questionsChanged = normalized.questionsProvided && canonicalQuestions(existing.questions) !== canonicalQuestions(normalized.questions);
+      const questionStructureChanged = normalized.questionsProvided &&
+        canonicalQuestionStructure(existing.questions) !== canonicalQuestionStructure(normalized.questions);
+      const answerKeyChanged = normalized.questionsProvided &&
+        canonicalAnswerKey(existing.questions) !== canonicalAnswerKey(normalized.questions);
+      const questionsChanged = questionStructureChanged || answerKeyChanged;
       const contentsChanged = normalized.contentsProvided && canonicalContents(existing.contents) !== canonicalContents(normalized.contents);
       const examSettingsChanged = [
         "hasExam", "passingScore", "attemptLimit", "examDurationMinutes", "shuffleQuestions", "shuffleOptions", "showCorrectAnswers",
@@ -491,8 +531,11 @@ export async function updateTraining(id: string, input: SaveTrainingInput) {
       const contentSettingsChanged = ["hasTrainingContent", "mustCompleteContent"].some(
         (key) => existing[key] !== (normalized.training as Record<string, unknown>)[key]
       );
-      if (hasAttempt && (questionsChanged || examSettingsChanged)) {
-        throw new HttpError(409, "Sınav denemesi başlamış eğitimde soru veya sınav ayarları değiştirilemez.");
+      if (hasAttempt && (questionStructureChanged || examSettingsChanged)) {
+        throw new HttpError(409, "Sınav denemesi başlamış eğitimde soru yapısı veya sınav ayarları değiştirilemez. Yalnızca cevap anahtarı, sonuçlar yeniden değerlendirilerek güncellenebilir.");
+      }
+      if (hasAttempt && answerKeyChanged && !input.recalculateResults) {
+        throw new HttpError(409, "Cevap anahtarı değişikliği tamamlanmış sonuçları etkiler. Yeniden değerlendirme onayı zorunludur.");
       }
       if (hasStartedAssignment && (contentsChanged || contentSettingsChanged)) {
         throw new HttpError(409, "Çalışan tarafından başlanmış eğitimde içerik akışı değiştirilemez.");
@@ -505,16 +548,51 @@ export async function updateTraining(id: string, input: SaveTrainingInput) {
         },
       });
       if (questionsChanged) {
-        for (const question of existing.questions) {
-          const documentId = documentIdFromUrl(question.imageUrl);
-          if (documentId) possibleOrphanDocumentIds.add(documentId);
-          for (const option of question.options) {
-            const optionDocumentId = documentIdFromUrl(option.imageUrl);
-            if (optionDocumentId) possibleOrphanDocumentIds.add(optionDocumentId);
+        if (hasAttempt) {
+          // Denemesi bulunan sınavda yalnızca doğru cevap bayrakları değişebilir.
+          // Soru/şık kimlikleri ve verilen cevap ilişkileri korunur.
+          for (const normalizedQuestion of normalized.questions) {
+            if (!normalizedQuestion.id) {
+              throw new HttpError(409, "Denemesi bulunan sınavda soru kimliği olmadan cevap anahtarı güncellenemez.");
+            }
+            const existingQuestion = existing.questions.find(
+              (question: any) => question.id === normalizedQuestion.id
+            );
+            if (!existingQuestion) {
+              throw new HttpError(409, "Cevap anahtarı güncellenirken eşleşen soru bulunamadı.");
+            }
+            for (const normalizedOption of normalizedQuestion.options) {
+              const existingOption = existingQuestion.options.find(
+                (option: any) => option.order === normalizedOption.order
+              );
+              if (!existingOption) {
+                throw new HttpError(409, "Cevap anahtarı güncellenirken eşleşen seçenek bulunamadı.");
+              }
+              await tx.questionOption.update({
+                where: { id: existingOption.id },
+                data: { isCorrect: normalizedOption.isCorrect },
+              });
+            }
           }
+
+          const recalculation = await recalculateTrainingAttemptsAfterAnswerKeyChange(
+            tx,
+            id,
+            input.createdById
+          );
+          staleGeneratedFilePaths = recalculation.staleFilePaths;
+        } else {
+          for (const question of existing.questions) {
+            const documentId = documentIdFromUrl(question.imageUrl);
+            if (documentId) possibleOrphanDocumentIds.add(documentId);
+            for (const option of question.options) {
+              const optionDocumentId = documentIdFromUrl(option.imageUrl);
+              if (optionDocumentId) possibleOrphanDocumentIds.add(optionDocumentId);
+            }
+          }
+          await tx.question.deleteMany({ where: { trainingId: id } });
+          await createNestedQuestions(tx, id, normalized.questions);
         }
-        await tx.question.deleteMany({ where: { trainingId: id } });
-        await createNestedQuestions(tx, id, normalized.questions);
       }
       if (contentsChanged) {
         for (const content of existing.contents) {
@@ -529,6 +607,7 @@ export async function updateTraining(id: string, input: SaveTrainingInput) {
       if (!normalized.isDraft) await validatePublishState(tx, id);
       return tx.training.findUnique({ where: { id }, include: trainingInclude });
     });
+    await removeStoredDocumentFiles(staleGeneratedFilePaths);
     for (const documentId of possibleOrphanDocumentIds) {
       await deleteDocumentIfUnreferenced(documentId).catch(() => undefined);
     }

@@ -151,13 +151,22 @@ const PAGE_HEIGHT = 841.92;
 const CONTENT_TOP = 107.2;
 const CONTENT_BOTTOM = 49.0;
 
+// ---------- DİNAMİK BAŞLIK / ÇERÇEVE ----------
+// Son demo şablonundaki hizalı başlık alanının A4 PDF koordinatları.
+const HEADER_LEFT = 40.56;
+const HEADER_TOP = 35.76;
+const HEADER_RIGHT = 552.72;
+const HEADER_BOTTOM = 91.92;
+const HEADER_DIVIDER = 379.44;
+const HEADER_ROW_LINES = [49.68, 63.60, 78.00] as const;
+
 // ---------- İKİ SÜTUNLU SORU DÜZENİ ----------
 const COLUMN_X = [34.0, 302.0] as const;
 const COLUMN_WIDTH = 253.0;
 
 // ---------- YAZI / BOŞLUK AYARLARI ----------
 const QUESTION_FONT_SIZE = 9.1;
-const OPTION_FONT_SIZE = 9.0;
+const OPTION_FONT_SIZE = 9.4;
 const LINE_HEIGHT = 10.7;
 const QUESTION_TO_FIRST_OPTION_GAP = 2.2;
 const OPTION_GAP = 0.3;
@@ -176,10 +185,10 @@ const OPTION_IMAGE_BOTTOM_GAP = 3;
 // Tüm şıkların görseli varsa referanstaki gibi küçük ve yan yana kartlar kullanılır.
 const OPTION_IMAGE_GRID_MAX_COLUMNS = 4;
 const OPTION_IMAGE_GRID_GAP = 4;
-const OPTION_IMAGE_GRID_FONT_SIZE = 7.2;
-const OPTION_IMAGE_GRID_LINE_HEIGHT = 8.2;
+const OPTION_IMAGE_GRID_FONT_SIZE = 9.0;
+const OPTION_IMAGE_GRID_LINE_HEIGHT = 10.2;
 const OPTION_IMAGE_GRID_LABEL_GAP = 1.5;
-const OPTION_IMAGE_GRID_MAX_HEIGHT = 46;
+const OPTION_IMAGE_GRID_MAX_HEIGHT = 48;
 const OPTION_IMAGE_GRID_ROW_GAP = 4;
 
 const OPTION_LETTERS = [
@@ -216,6 +225,33 @@ function normalizeText(value: string): string {
     .replace(/\r/g, "\n")
     .replace(/[ \t]+/g, " ")
     .trim();
+}
+
+function normalizeExamHeaderTitle(value: string): string {
+  const normalized = value
+    .toLocaleUpperCase("tr-TR")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const withoutFormSuffix = normalized
+    .replace(/\s*[-–—]?\s*ÖLÇME\s+DEĞERLENDİRME\s+FORMU\s*$/u, "")
+    .replace(/\s*[-–—]?\s*SINAV(?:I|İ)?\s*$/u, "")
+    .trim();
+
+  return withoutFormSuffix || normalized;
+}
+
+function fitHeaderFontSize(
+  font: PDFFont,
+  text: string,
+  maxWidth: number,
+  maximum = 14.9,
+  minimum = 10.5
+): number {
+  for (let size = maximum; size >= minimum; size -= 0.25) {
+    if (font.widthOfTextAtSize(text, size) <= maxWidth) return size;
+  }
+  return minimum;
 }
 
 function topToPdfY(topY: number): number {
@@ -381,24 +417,17 @@ function getOptionImageGridCellWidth(options: ExamPdfOption[]): number {
 }
 
 function getOptionImageGridLabelLines(
-  option: ExamPdfOption,
+  _option: ExamPdfOption,
   optionIndex: number,
   fonts: EmbeddedFonts,
   cellWidth: number
 ): WrappedLine[] {
   const letter = OPTION_LETTERS[optionIndex] ?? `${optionIndex + 1}`;
-  const label = option.text?.trim()
-    ? `${letter}) ${option.text}`
-    : `${letter})`;
-
-  const lines = wrapText(
-    label,
-    fonts.regular,
-    OPTION_IMAGE_GRID_FONT_SIZE,
-    Math.max(1, cellWidth - 2)
-  );
-
-  return lines.length ? lines : [{ text: label, width: 0 }];
+  const label = `${letter})`;
+  return [{
+    text: label,
+    width: fonts.bold.widthOfTextAtSize(label, OPTION_IMAGE_GRID_FONT_SIZE),
+  }];
 }
 
 function measureQuestionHeight(
@@ -421,30 +450,14 @@ function measureQuestionHeight(
 
   if (shouldUseOptionImageGrid(options)) {
     const columnCount = getOptionImageGridColumnCount(options);
-    const cellWidth = getOptionImageGridCellWidth(options);
-
-    for (let rowStart = 0; rowStart < options.length; rowStart += columnCount) {
-      const rowOptions = options.slice(rowStart, rowStart + columnCount);
-      const maximumLabelLineCount = Math.max(
-        1,
-        ...rowOptions.map((option, rowIndex) =>
-          getOptionImageGridLabelLines(
-            option,
-            rowStart + rowIndex,
-            fonts,
-            cellWidth
-          ).length
-        )
-      );
-
-      height +=
-        maximumLabelLineCount * OPTION_IMAGE_GRID_LINE_HEIGHT +
-        OPTION_IMAGE_GRID_LABEL_GAP +
-        OPTION_IMAGE_GRID_MAX_HEIGHT;
-
-      if (rowStart + columnCount < options.length) {
-        height += OPTION_IMAGE_GRID_ROW_GAP;
-      }
+    const rowCount = Math.ceil(options.length / columnCount);
+    height += rowCount * (
+      OPTION_IMAGE_GRID_MAX_HEIGHT +
+      OPTION_IMAGE_GRID_LABEL_GAP +
+      OPTION_IMAGE_GRID_LINE_HEIGHT
+    );
+    if (rowCount > 1) {
+      height += (rowCount - 1) * OPTION_IMAGE_GRID_ROW_GAP;
     }
   } else {
     options.forEach((option, index) => {
@@ -603,59 +616,23 @@ async function drawQuestion(
 
     for (let rowStart = 0; rowStart < options.length; rowStart += columnCount) {
       const rowOptions = options.slice(rowStart, rowStart + columnCount);
-      const labelLinesByOption = rowOptions.map((option, rowIndex) =>
-        getOptionImageGridLabelLines(
-          option,
-          rowStart + rowIndex,
-          fonts,
-          cellWidth
-        )
-      );
-      const maximumLabelLineCount = Math.max(
-        1,
-        ...labelLinesByOption.map((lines) => lines.length)
-      );
-      const labelHeight =
-        maximumLabelLineCount * OPTION_IMAGE_GRID_LINE_HEIGHT;
-      const imageSlotTop =
-        currentTop + labelHeight + OPTION_IMAGE_GRID_LABEL_GAP;
+      const imageSlotTop = currentTop;
+      const labelTop = imageSlotTop + OPTION_IMAGE_GRID_MAX_HEIGHT + OPTION_IMAGE_GRID_LABEL_GAP;
 
       for (let columnIndex = 0; columnIndex < rowOptions.length; columnIndex += 1) {
         const option = rowOptions[columnIndex];
-        const cellX =
-          x + columnIndex * (cellWidth + OPTION_IMAGE_GRID_GAP);
-        const labelLines = labelLinesByOption[columnIndex];
-
-        labelLines.forEach((line, lineIndex) => {
-          page.drawText(line.text, {
-            x: cellX,
-            y: topToPdfY(
-              currentTop +
-              OPTION_IMAGE_GRID_FONT_SIZE +
-              lineIndex * OPTION_IMAGE_GRID_LINE_HEIGHT
-            ),
-            size: OPTION_IMAGE_GRID_FONT_SIZE,
-            font: fonts.regular,
-            color: rgb(0, 0, 0),
-          });
-        });
-
-        const embeddedOptionImage = await embedQuestionImage(
-          outputPdf,
-          option.imageUrl!
-        );
+        const optionIndex = rowStart + columnIndex;
+        const cellX = x + columnIndex * (cellWidth + OPTION_IMAGE_GRID_GAP);
+        const embeddedOptionImage = await embedQuestionImage(outputPdf, option.imageUrl!);
 
         if (embeddedOptionImage) {
           const imageSize = getContainedImageSize(
             embeddedOptionImage,
-            Math.max(1, cellWidth - 4),
+            Math.max(1, cellWidth - 3),
             OPTION_IMAGE_GRID_MAX_HEIGHT
           );
           const imageX = cellX + (cellWidth - imageSize.width) / 2;
-          const imageTop =
-            imageSlotTop +
-            (OPTION_IMAGE_GRID_MAX_HEIGHT - imageSize.height) / 2;
-
+          const imageTop = imageSlotTop + (OPTION_IMAGE_GRID_MAX_HEIGHT - imageSize.height) / 2;
           page.drawImage(embeddedOptionImage, {
             x: imageX,
             y: topToPdfY(imageTop + imageSize.height),
@@ -663,10 +640,20 @@ async function drawQuestion(
             height: imageSize.height,
           });
         }
+
+        const letter = OPTION_LETTERS[optionIndex] ?? `${optionIndex + 1}`;
+        const label = `${letter})`;
+        const labelWidth = fonts.bold.widthOfTextAtSize(label, OPTION_IMAGE_GRID_FONT_SIZE);
+        page.drawText(label, {
+          x: cellX + (cellWidth - labelWidth) / 2,
+          y: topToPdfY(labelTop + OPTION_IMAGE_GRID_FONT_SIZE),
+          size: OPTION_IMAGE_GRID_FONT_SIZE,
+          font: fonts.bold,
+          color: rgb(0, 0, 0),
+        });
       }
 
-      currentTop = imageSlotTop + OPTION_IMAGE_GRID_MAX_HEIGHT;
-
+      currentTop = labelTop + OPTION_IMAGE_GRID_LINE_HEIGHT;
       if (rowStart + columnCount < options.length) {
         currentTop += OPTION_IMAGE_GRID_ROW_GAP;
       }
@@ -734,9 +721,88 @@ async function drawQuestion(
 }
 
 // ---------- ŞABLON SAYFASI ----------
+function drawDynamicHeader(
+  page: PDFPage,
+  fonts: EmbeddedFonts,
+  trainingTitle: string
+): void {
+  // Şablona gömülü eski başlık/çerçeve ve alttaki ikinci çizgi tamamen temizlenir.
+  page.drawRectangle({
+    x: 26.4,
+    y: topToPdfY(105.6),
+    width: 549.6,
+    height: 79.2,
+    color: rgb(1, 1, 1),
+    borderWidth: 0,
+  });
+
+  const lineColor = rgb(0.40, 0.40, 0.40);
+  const thickness = 0.55;
+  const line = (x1: number, top1: number, x2: number, top2: number) => {
+    page.drawLine({
+      start: { x: x1, y: topToPdfY(top1) },
+      end: { x: x2, y: topToPdfY(top2) },
+      thickness,
+      color: lineColor,
+    });
+  };
+
+  line(HEADER_LEFT, HEADER_TOP, HEADER_RIGHT, HEADER_TOP);
+  line(HEADER_RIGHT, HEADER_TOP, HEADER_RIGHT, HEADER_BOTTOM);
+  line(HEADER_RIGHT, HEADER_BOTTOM, HEADER_LEFT, HEADER_BOTTOM);
+  line(HEADER_LEFT, HEADER_BOTTOM, HEADER_LEFT, HEADER_TOP);
+  line(HEADER_DIVIDER, HEADER_TOP, HEADER_DIVIDER, HEADER_BOTTOM);
+  HEADER_ROW_LINES.forEach((rowTop) =>
+    line(HEADER_DIVIDER, rowTop, HEADER_RIGHT, rowTop)
+  );
+
+  const title = normalizeExamHeaderTitle(trainingTitle);
+  const titleAreaCenter = (HEADER_LEFT + HEADER_DIVIDER) / 2;
+  const titleMaxWidth = HEADER_DIVIDER - HEADER_LEFT - 24;
+  const titleSize = fitHeaderFontSize(fonts.regular, title, titleMaxWidth);
+  const titleWidth = fonts.regular.widthOfTextAtSize(title, titleSize);
+  const formText = "ÖLÇME DEĞERLENDİRME FORMU";
+  const formSize = 14.9;
+  const formWidth = fonts.regular.widthOfTextAtSize(formText, formSize);
+
+  page.drawText(title, {
+    x: titleAreaCenter - titleWidth / 2,
+    y: topToPdfY(39.36),
+    size: titleSize,
+    font: fonts.regular,
+    color: rgb(0, 0, 0),
+  });
+  page.drawText(formText, {
+    x: titleAreaCenter - formWidth / 2,
+    y: topToPdfY(63.36),
+    size: formSize,
+    font: fonts.regular,
+    color: rgb(0, 0, 0),
+  });
+
+  const labelX = 384;
+  const labelSize = 7.7;
+  [
+    ["AD SOYAD:", 38.4],
+    ["GÖREV:", 52.32],
+    ["TARİH:", 66.24],
+    ["İMZA:", 80.64],
+  ].forEach(([text, baselineTop]) => {
+    page.drawText(text as string, {
+      x: labelX,
+      y: topToPdfY(baselineTop as number),
+      size: labelSize,
+      font: fonts.bold,
+      color: rgb(0.07, 0.07, 0.07),
+    });
+  });
+}
+
 async function copyTemplatePage(
   templatePdf: PDFDocument,
-  outputPdf: PDFDocument
+  outputPdf: PDFDocument,
+  fonts: EmbeddedFonts,
+  trainingTitle: string
 ): Promise<PDFPage> {
   const [copiedPage] = await outputPdf.copyPages(
     templatePdf,
@@ -747,7 +813,6 @@ async function copyTemplatePage(
 
   /*
    * Şablondaki eski soruları temizler.
-   * Üst başlık ve ad-soyad tablosu korunur.
    */
   copiedPage.drawRectangle({
     x: 34,
@@ -761,6 +826,7 @@ async function copyTemplatePage(
     borderWidth: 0,
   });
 
+  drawDynamicHeader(copiedPage, fonts, trainingTitle);
   return copiedPage;
 }
 
@@ -848,11 +914,10 @@ export async function generateExamPdf(
 
     let page = await copyTemplatePage(
       templatePdf,
-      outputPdf
+      outputPdf,
+      fonts,
+      training.title
     );
-
-    let columnIndex = 0;
-    let currentTop = CONTENT_TOP;
 
     const sortedQuestions = [
       ...training.questions,
@@ -861,48 +926,91 @@ export async function generateExamPdf(
         first.order - second.order
     );
 
-    for (const question of sortedQuestions) {
-      const hasUsableImage =
-        Boolean(question.imageUrl) &&
-        fs.existsSync(
-          question.imageUrl as string
-        );
+    const measuredHeights = sortedQuestions.map((question) => {
+      const hasUsableImage = Boolean(question.imageUrl) &&
+        fs.existsSync(question.imageUrl as string);
+      return measureQuestionHeight(question, fonts, hasUsableImage);
+    });
 
-      const requiredHeight =
-        measureQuestionHeight(
-          question,
+    const availableColumnHeight = PAGE_HEIGHT - CONTENT_BOTTOM - CONTENT_TOP;
+    let splitIndex = Math.ceil(sortedQuestions.length / 2);
+    let bestBalancedHeight = Number.POSITIVE_INFINITY;
+
+    for (let candidate = 1; candidate < sortedQuestions.length; candidate += 1) {
+      const leftHeight = measuredHeights
+        .slice(0, candidate)
+        .reduce((sum, height) => sum + height, 0);
+      const rightHeight = measuredHeights
+        .slice(candidate)
+        .reduce((sum, height) => sum + height, 0);
+      const candidateHeight = Math.max(leftHeight, rightHeight);
+      if (candidateHeight < bestBalancedHeight) {
+        bestBalancedHeight = candidateHeight;
+        splitIndex = candidate;
+      }
+    }
+
+    const canUseBalancedSinglePage =
+      sortedQuestions.length <= 1 || bestBalancedHeight <= availableColumnHeight;
+
+    if (canUseBalancedSinglePage) {
+      let leftTop = CONTENT_TOP;
+      for (let index = 0; index < splitIndex; index += 1) {
+        leftTop = await drawQuestion(
+          outputPdf,
+          page,
+          sortedQuestions[index],
           fonts,
-          hasUsableImage
+          COLUMN_X[0],
+          leftTop
         );
-
-      const availableHeight =
-        PAGE_HEIGHT -
-        CONTENT_BOTTOM -
-        currentTop;
-
-      if (requiredHeight > availableHeight) {
-        if (columnIndex === 0) {
-          columnIndex = 1;
-          currentTop = CONTENT_TOP;
-        } else {
-          page = await copyTemplatePage(
-            templatePdf,
-            outputPdf
-          );
-
-          columnIndex = 0;
-          currentTop = CONTENT_TOP;
-        }
       }
 
-      currentTop = await drawQuestion(
-        outputPdf,
-        page,
-        question,
-        fonts,
-        COLUMN_X[columnIndex],
-        currentTop
-      );
+      let rightTop = CONTENT_TOP;
+      for (let index = splitIndex; index < sortedQuestions.length; index += 1) {
+        rightTop = await drawQuestion(
+          outputPdf,
+          page,
+          sortedQuestions[index],
+          fonts,
+          COLUMN_X[1],
+          rightTop
+        );
+      }
+    } else {
+      let columnIndex = 0;
+      let currentTop = CONTENT_TOP;
+
+      for (let index = 0; index < sortedQuestions.length; index += 1) {
+        const question = sortedQuestions[index];
+        const requiredHeight = measuredHeights[index];
+        const availableHeight = PAGE_HEIGHT - CONTENT_BOTTOM - currentTop;
+
+        if (requiredHeight > availableHeight) {
+          if (columnIndex === 0) {
+            columnIndex = 1;
+            currentTop = CONTENT_TOP;
+          } else {
+            page = await copyTemplatePage(
+              templatePdf,
+              outputPdf,
+              fonts,
+              training.title
+            );
+            columnIndex = 0;
+            currentTop = CONTENT_TOP;
+          }
+        }
+
+        currentTop = await drawQuestion(
+          outputPdf,
+          page,
+          question,
+          fonts,
+          COLUMN_X[columnIndex],
+          currentTop
+        );
+      }
     }
 
     outputPdf.setTitle(
