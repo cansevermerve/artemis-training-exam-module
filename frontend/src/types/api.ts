@@ -39,6 +39,9 @@ export type Training = {
   passingScore: number;
   attemptLimit: number;
   examDurationMinutes: number;
+  shuffleQuestions?: boolean;
+  shuffleOptions?: boolean;
+  showCorrectAnswers?: boolean;
   contents?: TrainingContent[];
   _count?: {
     assignments: number;

@@ -77,25 +77,41 @@ function latestCompletedAttempt(assignment: ParticipantAssignment) {
 }
 
 function certificateState(assignment: ParticipantAssignment) {
+  const allDocuments = [
+    ...assignment.documents,
+    ...assignment.attempts.flatMap((attempt) => attempt.documents ?? []),
+  ];
+  const reviewDocument = allDocuments.find(
+    (document) =>
+      document.type === "OSGB_CERTIFICATE" &&
+      document.title.includes("İnceleme Gerekli")
+  );
+
   const passedAttempt = [...assignment.attempts]
     .filter((attempt) => attempt.status === "PASSED" && attempt.passed !== false)
     .sort((left, right) => right.attemptNumber - left.attemptNumber)[0];
 
   if (!passedAttempt) {
-    return { eligible: false, uploaded: false, attemptId: null };
+    return {
+      eligible: false,
+      uploaded: Boolean(reviewDocument),
+      reviewRequired: Boolean(reviewDocument),
+      attemptId: reviewDocument?.attemptId ?? null,
+    };
   }
 
-  const documents = [
-    ...assignment.documents,
-    ...(passedAttempt.documents ?? []),
-  ];
-  const uploaded = documents.some(
+  const uploaded = allDocuments.some(
     (document) =>
       document.type === "OSGB_CERTIFICATE" &&
       (!document.attemptId || document.attemptId === passedAttempt.id)
   );
 
-  return { eligible: true, uploaded, attemptId: passedAttempt.id };
+  return {
+    eligible: true,
+    uploaded,
+    reviewRequired: Boolean(reviewDocument),
+    attemptId: passedAttempt.id,
+  };
 }
 
 function attemptLabel(status: ParticipantAttempt["status"]): string {
@@ -148,6 +164,7 @@ function AdminParticipantsPage() {
   const [attendanceInputKey, setAttendanceInputKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [showAssignmentModeDialog, setShowAssignmentModeDialog] = useState(false);
   const [documentBusy, setDocumentBusy] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState<string | null>(null);
   const [correctionAttemptId, setCorrectionAttemptId] = useState<string | null>(null);
@@ -276,7 +293,8 @@ function AdminParticipantsPage() {
     return [...latestByType.values()];
   }, [commonDocuments]);
 
-  const participantManagementEnabled = Boolean(training?.isActive && !training?.isDraft);
+  // Katılımcılar eğitim yayınlanmadan önce de hazırlanabilir.
+  const participantManagementEnabled = Boolean(training);
 
   const filteredAssignments = useMemo(() => {
     const term = participantSearch.trim().toLocaleLowerCase("tr-TR");
@@ -347,8 +365,9 @@ function AdminParticipantsPage() {
     );
   }
 
-  async function saveParticipants() {
-    if (!trainingId) return;
+  async function saveParticipants(mode: "passive" | "active") {
+    if (!trainingId || !training) return;
+    setShowAssignmentModeDialog(false);
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -363,9 +382,49 @@ function AdminParticipantsPage() {
           }),
         }
       );
+
+      const nextActive = mode === "active";
+      const nextStatus = nextActive ? "published" : training.isDraft ? "draft" : "published";
+      await adminApiRequest<Training>(`/trainings/${trainingId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          status: nextStatus,
+          title: training.title,
+          description: training.description,
+          category: training.category,
+          trainingKind: training.trainingKind,
+          trainingFormat: training.trainingFormat,
+          trainingDate: training.trainingDate,
+          startTime: training.startTime,
+          durationMinutes: training.durationMinutes,
+          location: training.location,
+          isActive: nextActive,
+          flow: {
+            hasTrainingContent: training.hasTrainingContent,
+            mustCompleteContent: training.mustCompleteContent,
+            hasExam: training.hasExam,
+            hasAttendanceForm: training.hasAttendanceForm,
+          },
+          exam: training.hasExam
+            ? {
+                passingScore: training.passingScore,
+                attemptLimit: training.attemptLimit,
+                durationMinutes: training.examDurationMinutes,
+                shuffleQuestions: Boolean(training.shuffleQuestions),
+                shuffleOptions: Boolean(training.shuffleOptions),
+                showCorrectAnswersAfterExam: Boolean(training.showCorrectAnswers),
+              }
+            : null,
+        }),
+      });
+
       setDueDate("");
       await loadPage();
-      setMessage("Katılımcı ekleme ve çıkarma işlemleri kaydedildi.");
+      setMessage(
+        nextActive
+          ? "Katılımcılar kaydedildi ve sınav katılıma açıldı."
+          : "Katılımcılar kaydedildi. Sınav pasif olarak bırakıldı."
+      );
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -455,6 +514,21 @@ function AdminParticipantsPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 dark:bg-gray-900 sm:p-6">
+      {showAssignmentModeDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Katılımcıları Kaydet</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
+              Katılımcılar eğitime atanacaktır. Sınavı şimdi katılıma açabilir veya daha sonra aktif etmek üzere pasif bırakabilirsiniz.
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setShowAssignmentModeDialog(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200">Vazgeç</button>
+              <button type="button" onClick={() => void saveParticipants("passive")} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">Pasif Olarak Kaydet</button>
+              <button type="button" onClick={() => void saveParticipants("active")} className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900">Aktif Et ve Katılımcılara Aç</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -627,7 +701,7 @@ function AdminParticipantsPage() {
               <button
                 type="button"
                 disabled={busy || loading || !participantManagementEnabled}
-                onClick={() => void saveParticipants()}
+                onClick={() => setShowAssignmentModeDialog(true)}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gray-800 px-5 py-2.5 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-50"
               >
                 <Save className="h-4 w-4" />
@@ -635,8 +709,8 @@ function AdminParticipantsPage() {
               </button>
               <p className="text-xs leading-5 text-gray-500">
                 {participantManagementEnabled
-                  ? "Geçmiş sınav veya belge kaydı bulunan kişiler silinmez; denetim izi korunarak eğitimden çıkarılır."
-                  : "Katılımcı eklemek veya çıkarmak için eğitim yayınlanmış ve aktif olmalıdır."}
+                  ? "Taslak veya yayınlanmış eğitimlere katılımcı atanabilir. Geçmiş sınav ya da belge kaydı bulunan kişiler silinmez; denetim izi korunarak eğitimden çıkarılır."
+                  : "Eğitim kaydı yüklenemediği için katılımcı işlemi yapılamıyor."}
               </p>
             </div>
           </div>
@@ -748,7 +822,11 @@ function AdminParticipantsPage() {
                           {assignmentLabel(assignment.status)}
                         </td>
                         <td className="px-4 py-4">
-                          {!certificate.eligible ? (
+                          {certificate.reviewRequired ? (
+                            <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                              İnceleme Gerekli
+                            </span>
+                          ) : !certificate.eligible ? (
                             <span className="text-xs text-gray-400">—</span>
                           ) : (
                             <span
@@ -1038,6 +1116,24 @@ function AdminParticipantsPage() {
             Çıktılar yalnızca “{training?.title ?? "bu eğitim"}” katılımcılarını içerir.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                void openProtectedDocument(
+                  `/exports/trainings/${trainingId}/participants.pdf`,
+                  "admin"
+                ).catch((requestError: unknown) =>
+                  setError(
+                    requestError instanceof Error
+                      ? requestError.message
+                      : "Katılımcı önizlemesi açılamadı."
+                  )
+                )
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200"
+            >
+              <Eye className="h-4 w-4" /> Katılımcıları Önizle
+            </button>
             <DownloadFormatMenu
               label="Katılımcı Listesini İndir"
               disabled={Boolean(downloadBusy)}
@@ -1052,6 +1148,24 @@ function AdminParticipantsPage() {
             />
             {training?.hasExam && (
               <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void openProtectedDocument(
+                      `/exports/trainings/${trainingId}/results.pdf`,
+                      "admin"
+                    ).catch((requestError: unknown) =>
+                      setError(
+                        requestError instanceof Error
+                          ? requestError.message
+                          : "Sonuç önizlemesi açılamadı."
+                      )
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200"
+                >
+                  <Eye className="h-4 w-4" /> Sonuçları Önizle
+                </button>
                 <DownloadFormatMenu
                   label="Sonuçları İndir"
                   disabled={Boolean(downloadBusy)}
@@ -1064,6 +1178,15 @@ function AdminParticipantsPage() {
                     );
                   }}
                 />
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(`/admin/trainings/${trainingId}/exam-preview`)
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-200"
+                >
+                  <Eye className="h-4 w-4" /> Sınavı Önizle
+                </button>
                 <button
                   type="button"
                   onClick={() =>

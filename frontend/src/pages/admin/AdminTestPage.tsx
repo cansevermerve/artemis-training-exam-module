@@ -4,12 +4,17 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Eye,
   Plus,
   RefreshCw,
   Search,
 } from "lucide-react";
 
-import { adminApiRequest, downloadProtectedDocument } from "../../lib/api";
+import {
+  adminApiRequest,
+  downloadProtectedDocument,
+  openProtectedDocument,
+} from "../../lib/api";
 import type { Training } from "../../types/api";
 
 type AdminTraining = Training & {
@@ -178,6 +183,19 @@ function AdminTestPage() {
     }
   }
 
+  async function preview(endpoint: string) {
+    setError(null);
+    try {
+      await openProtectedDocument(endpoint, "admin");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Önizleme açılamadı."
+      );
+    }
+  }
+
   const firstItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastItem = Math.min(page * pageSize, total);
 
@@ -190,7 +208,7 @@ function AdminTestPage() {
               <ClipboardList className="h-7 w-7" /> Eğitim ve Sınavlar
             </h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Eğitimler doğrudan backend API üzerinden listelenir ve yönetilir.
+              Eğitim kayıtlarını görüntüleyebilir, durumlarını yönetebilir ve ilgili işlemlere erişebilirsiniz.
             </p>
           </div>
           <div className="flex gap-2">
@@ -308,6 +326,7 @@ function AdminTestPage() {
                                   <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
                                 </summary>
                                 <div className="ml-3 border-l border-gray-200 pl-2 dark:border-gray-700">
+                                  <button type="button" onClick={() => void preview(`/exports/trainings/${training.id}/participants.pdf`)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700"><Eye className="h-3.5 w-3.5" /> PDF'yi önizle</button>
                                   <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/participants.pdf`, `${training.title}-katilimcilar.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">PDF olarak indir</button>
                                   <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/participants.xls`, `${training.title}-katilimcilar.xls`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Excel olarak indir</button>
                                 </div>
@@ -320,10 +339,12 @@ function AdminTestPage() {
                                       <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
                                     </summary>
                                     <div className="ml-3 border-l border-gray-200 pl-2 dark:border-gray-700">
+                                      <button type="button" onClick={() => void preview(`/exports/trainings/${training.id}/results.pdf`)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700"><Eye className="h-3.5 w-3.5" /> PDF'yi önizle</button>
                                       <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/results.pdf`, `${training.title}-sonuclar.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">PDF olarak indir</button>
                                       <button type="button" onClick={() => void download(`/exports/trainings/${training.id}/results.xls`, `${training.title}-sonuclar.xls`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Excel olarak indir</button>
                                     </div>
                                   </details>
+                                  <button type="button" onClick={() => navigate(`/admin/trainings/${training.id}/exam-preview`)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700"><Eye className="h-3.5 w-3.5" /> Sınavı Önizle</button>
                                   <button type="button" onClick={() => void download(`/pdf/training/${training.id}/exam`, `${training.title}-sinav.pdf`)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Sınavı İndir</button>
                                 </>
                               )}

@@ -238,7 +238,7 @@ function TestPage() {
           <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg dark:bg-gray-800">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Testi bitirmek istediğinize emin misiniz?</h2>
             {unansweredQuestions.length > 0 && <p className="mt-3 text-sm text-red-600 dark:text-red-400">Boş bıraktığınız sorular: {unansweredQuestions.map((question) => attempt.questions.findIndex((item) => item.id === question.id) + 1).join(", ")}</p>}
-            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Puan ve başarı durumu yalnızca backend tarafından hesaplanacaktır.</p>
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Sınav sonucunuz, yanıtlarınız değerlendirildikten sonra otomatik olarak oluşturulacaktır.</p>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" disabled={isSubmitting} onClick={() => setShowFinishModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-300">Vazgeç</button>
               <button type="button" disabled={isSubmitting || savingQuestionIds.size > 0} onClick={() => void submitExam()} className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-50">{isSubmitting ? "Gönderiliyor..." : "Evet, Bitir"}</button>

@@ -230,7 +230,7 @@ export function AdminResultCorrectionModal({ attemptId, onClose, onSaved }: Prop
               Sınav Sonucunu Düzelt
             </h2>
             <p className="mt-1 text-sm text-gray-500">
-              Cevaplar değiştirildiğinde puan ve başarı durumu backend tarafından yeniden hesaplanır.
+              Cevaplarda yapılan değişikliklerin ardından puan ve başarı durumu sistem tarafından yeniden değerlendirilir.
             </p>
           </div>
           <button

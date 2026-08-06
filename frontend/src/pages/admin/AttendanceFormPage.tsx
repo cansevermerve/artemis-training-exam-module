@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, Eye } from "lucide-react";
 
-import { adminApiRequest, downloadProtectedDocument } from "../../lib/api";
+import {
+  adminApiRequest,
+  downloadProtectedDocument,
+  openProtectedDocument,
+} from "../../lib/api";
 
 interface TrainingSummary {
   title: string;
@@ -49,6 +53,23 @@ function AttendanceFormPage() {
     };
   }, [trainingId]);
 
+  function attendanceEndpoint(): string {
+    if (!trainingId) throw new Error("Eğitim kimliği bulunamadı.");
+    return `/pdfs/attendance?trainingId=${encodeURIComponent(trainingId)}&templateType=${templateType}`;
+  }
+
+  async function preview() {
+    setLoading(true);
+    setError(null);
+    try {
+      await openProtectedDocument(attendanceEndpoint(), "admin");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "PDF önizlemesi açılamadı.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function download() {
     if (!trainingId) {
       setError("Eğitim kimliği bulunamadı.");
@@ -62,7 +83,7 @@ function AttendanceFormPage() {
           ? `isg-katilim-formu-${trainingId}.pdf`
           : `yuksekte-calisma-katilim-formu-${trainingId}.pdf`;
       await downloadProtectedDocument(
-        `/pdfs/attendance?trainingId=${encodeURIComponent(trainingId)}&templateType=${templateType}`,
+        attendanceEndpoint(),
         fallbackName,
         "admin"
       );
@@ -121,15 +142,26 @@ function AttendanceFormPage() {
           </option>
         </select>
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-        <button
-          type="button"
-          disabled={loading}
-          onClick={() => void download()}
-          className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gray-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          <Download className="h-4 w-4" />
-          {loading ? "Oluşturuluyor..." : "PDF Oluştur ve İndir"}
-        </button>
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void preview()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <Eye className="h-4 w-4" />
+            {loading ? "Oluşturuluyor..." : "PDF'yi Önizle"}
+          </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void download()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gray-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            {loading ? "Oluşturuluyor..." : "PDF Oluştur ve İndir"}
+          </button>
+        </div>
       </div>
     </div>
   );

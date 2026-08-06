@@ -230,6 +230,7 @@ function TrainingPage() {
   const activeAttempt = assignment.attempts.find((attempt) => attempt.status === "IN_PROGRESS");
   const usedAttemptCount = assignment.attempts.filter((attempt) => attempt.status !== "IN_PROGRESS").length;
   const attemptAvailable = Boolean(activeAttempt) || usedAttemptCount < training.attemptLimit;
+  const examOpen = training.isActive;
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 dark:bg-gray-900 sm:p-8">
@@ -245,7 +246,7 @@ function TrainingPage() {
             <div><p className="text-xs text-gray-500 dark:text-gray-400">Süre</p><p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{training.durationMinutes} dakika</p></div>
             <div><p className="text-xs text-gray-500 dark:text-gray-400">Kategori</p><p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{training.category}</p></div>
             <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-900/50"><div className="flex items-center gap-2">{contentCompleted ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <FileText className="h-5 w-5 text-amber-600" />}<p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{contentCompleted ? "Eğitim içeriği tamamlandı" : "Zorunlu içerikler bekleniyor"}</p></div></div>
-            <button type="button" disabled={!contentCompleted || Boolean(passedAttempt) || !training.hasExam || !attemptAvailable} onClick={() => navigate(`/test/${assignment.id}`)} className="w-full rounded-lg bg-gray-800 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-50">{!training.hasExam ? "Bu Eğitimde Sınav Yok" : passedAttempt ? "Sınav Başarıyla Tamamlandı" : !contentCompleted ? "Önce Eğitimi Tamamlayın" : !attemptAvailable ? "Deneme Hakkı Kalmadı" : activeAttempt ? "Sınava Devam Et" : "Sınava Başla"}</button>
+            <button type="button" disabled={!examOpen || !contentCompleted || Boolean(passedAttempt) || !training.hasExam || !attemptAvailable} onClick={() => navigate(`/test/${assignment.id}`)} className="w-full rounded-lg bg-gray-800 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-50">{!training.hasExam ? "Bu Eğitimde Sınav Yok" : !examOpen ? "Sınav Henüz Katılıma Açılmadı" : passedAttempt ? "Sınav Başarıyla Tamamlandı" : !contentCompleted ? "Önce Eğitimi Tamamlayın" : !attemptAvailable ? "Deneme Hakkı Kalmadı" : activeAttempt ? "Sınava Devam Et" : "Sınava Başla"}</button>
             {passedAttempt && <button type="button" onClick={() => navigate(`/result/${passedAttempt.id}`)} className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">Sonucu Görüntüle</button>}
           </aside>
         </div>

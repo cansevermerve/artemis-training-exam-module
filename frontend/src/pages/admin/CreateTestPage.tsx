@@ -110,6 +110,14 @@ type TrainingApiRecord = {
   coverImageUrl?: string | null;
 };
 
+type TrainingAssignmentForRecalculation = {
+  attempts: Array<{ status: string; submittedAt?: string | null }>;
+};
+
+function correctAnswerMapFromForm(questions: Question[]): Record<string, number[]> {
+  return Object.fromEntries(questions.map((question) => [question.id, [...question.correctOptionIndexes].sort()]));
+}
+
 type TrainingApiContent = {
   id: string;
   type: "VIDEO" | "PDF" | "IMAGE" | "LINK";
@@ -1323,6 +1331,38 @@ function CreateTestPage() {
     }
 
     const requestedStatus = saveMode === "draft" ? "draft" : "published";
+    let recalculateResults = false;
+
+    if (isEditMode && id) {
+      const currentTraining = await adminApiRequest<TrainingApiRecord>(`/trainings/${encodeURIComponent(id)}`);
+      const after = correctAnswerMapFromForm(questions);
+      const answerKeyChanged = questions.some((question) => {
+        const apiQuestion = currentTraining.questions.find((item) => item.id === question.id);
+        if (!apiQuestion) return false;
+        const oldCorrectIndexes = apiQuestion.options
+          .map((option, index) => (option.isCorrect ? index : -1))
+          .filter((index) => index >= 0);
+        return oldCorrectIndexes.join("|") !== (after[question.id] ?? []).join("|");
+      });
+
+      if (answerKeyChanged) {
+        const assignmentRows = await adminApiRequest<TrainingAssignmentForRecalculation[]>(
+          `/trainings/${encodeURIComponent(id)}/assignments?includeCancelled=true`
+        );
+        const affectedCount = assignmentRows.reduce(
+          (sum, assignment) => sum + assignment.attempts.filter((attempt) => attempt.status !== "IN_PROGRESS" && Boolean(attempt.submittedAt)).length,
+          0
+        );
+        if (affectedCount > 0) {
+          const approved = window.confirm(
+            `Doğru cevap değişikliği ${affectedCount} tamamlanmış sınav sonucunu yeniden değerlendirecektir. Puanlar, başarı durumları ve sertifika uygunlukları değişebilir. Devam etmek istiyor musunuz?`
+          );
+          if (!approved) return;
+          recalculateResults = true;
+        }
+      }
+    }
+
     setValidationIssues([]);
     setRequestError("");
     setIsSaving(true);
@@ -1353,7 +1393,7 @@ function CreateTestPage() {
           `/trainings/${encodeURIComponent(savedTrainingId)}`,
           {
             method: "PUT",
-            body: JSON.stringify(buildPayload(initialStatus, true)),
+            body: JSON.stringify({ ...buildPayload(initialStatus, true), recalculateResults }),
           }
         );
       } else {
@@ -1377,7 +1417,7 @@ function CreateTestPage() {
             method: "PUT",
             // Soru, şık ve içerik varlıkları artık DB'de gerçek ID/URL'leriyle
             // bulunduğundan ikinci çağrı yalnızca yayını ve ayarları etkinleştirir.
-            body: JSON.stringify(buildPayload("published", false)),
+            body: JSON.stringify({ ...buildPayload("published", false), recalculateResults }),
           }
         );
       } else {
@@ -1803,15 +1843,13 @@ function CreateTestPage() {
             <input
               type="number"
               min={0}
-              max={59}
-              step={5}
               value={durationMinutes}
               onChange={(event) =>
                 setDurationMinutes(
                   clampNumber(
                     event.target.value,
                     0,
-                    59,
+                    100000,
                     durationMinutes
                   )
                 )
@@ -1859,7 +1897,7 @@ function CreateTestPage() {
               placeholder={
                 trainingFormat ===
                 "Uzaktan"
-                  ? "Örn. Artemis Akademi / toplantı bağlantısı"
+                  ? "Örn. Kurumsal eğitim bağlantısı veya çevrim içi toplantı adresi"
                   : "Örn. Toplantı Salonu A"
               }
               maxLength={250}
@@ -1874,8 +1912,8 @@ function CreateTestPage() {
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-gray-400">
-                  Pasif eğitimler çalışanlara atanamaz.
-                  Taslak kayıtlar her zaman pasif tutulur.
+                  Katılımcılar pasif eğitimlere de önceden atanabilir.
+                  Eğitim aktif edilene kadar sınav çalışanlara açılmaz.
                 </p>
               </div>
 
@@ -1906,7 +1944,7 @@ function CreateTestPage() {
       </SectionCard>
       <SectionCard
         title="Akış ve Modül Ayarları"
-        description="BTK Akademi benzeri zorunlu içerik → sınav akışını yönetin."
+        description="Zorunlu eğitim içeriklerini, sınav erişimini ve katılımcı ilerlemesini tek akış üzerinden yönetin."
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <SwitchRow

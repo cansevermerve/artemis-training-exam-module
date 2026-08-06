@@ -15,6 +15,7 @@ import AdminTestPage from "./pages/admin/AdminTestPage";
 import AttendanceFormPage from "./pages/admin/AttendanceFormPage";
 import CreateTestPage from "./pages/admin/CreateTestPage";
 import EmployeeTrainingFilePage from "./pages/admin/EmployeeTrainingFilePage";
+import ExamPreviewPage from "./pages/admin/ExamPreviewPage";
 
 function AppLayout() {
   return <Outlet />;
@@ -33,6 +34,7 @@ const router = createBrowserRouter([
       { path: "admin/trainings", element: <AdminTestPage /> },
       { path: "admin/trainings/create", element: <CreateTestPage /> },
       { path: "admin/trainings/:id/edit", element: <CreateTestPage /> },
+      { path: "admin/trainings/:id/exam-preview", element: <ExamPreviewPage /> },
       {
         path: "admin/trainings/:id/participants",
         element: <AdminParticipantsPage />,
