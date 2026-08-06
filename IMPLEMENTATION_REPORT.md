@@ -348,7 +348,7 @@ Kimlik katmanı doğrudan kullanıcı ID'sinin yanında eşsiz kurumsal e-posta 
 - Assignment servisleri gerektiğinde `userEmails` dizisini de kullanıcı ID'lerine güvenli şekilde çözümleyebilir.
 - Employee dashboard, kullanıcı ID'sini URL'de taşımak yerine kimliği doğrulanmış `/api/users/me/assignments` endpoint'ini kullanır.
 
-Gerçek DB'de kurumsal e-posta kolonunun benzersizliği ve gerçek kolon mapping'i Cenk Bey'in ortamında doğrulanmalıdır.
+Gerçek DB'de kurumsal e-posta kolonunun benzersizliği ve gerçek kolon mapping'i  ortamında doğrulanmalıdır.
 
 ## 13B. Arama, Filtreleme ve Sayfalama
 
@@ -485,3 +485,17 @@ Canlıya geçiş için kalan çalışma yeni bir UI veya sınav özelliği geli�
 - Başarılı sınav sonucu İK panelinde sertifika yükleme kuyruğuna düşer; çalışan tarafında sertifikaya ilişkin bekleme mesajı gösterilmez.
 - Katılımcı listesi ve sınav sonuçları tek indirme butonundan PDF veya Excel formatında alınabilir.
 - Excel ve PDF çıktıları aynı seçili eğitim ve aynı filtrelenmiş katılımcı kayıtlarından üretilir; kişi adı ayrı, filtrelenmemiş bir listeden seçilmez.
+
+## 18. Son Üretim Paketi Güncellemeleri
+
+Bu teslim, demo paketi değildir. Tarayıcı içi sahte veritabanı, localStorage veri katmanı, demo kullanıcı seçimi ve tanıtım paneli içermez.
+
+- Frontend bütün eğitim, katılımcı, sınav, sonuç ve belge işlemlerini gerçek API uçlarına gönderir.
+- Backend Prisma/PostgreSQL bağlantısı için hazırdır; kurum yalnızca ortam değişkenlerini ve kendi tablo eşleşmelerini tanımlar.
+- `DATABASE_URL` örneği ve Prisma doğrulama/migration komutları eklendi.
+- Sınav PDF'i seçili eğitimin başlığını, sorularını, şıklarını ve görsellerini dinamik kullanır.
+- Resmî şablon korunur; başlık çerçevesi tek kalınlıkta ve hizalı biçimde yeniden çizilir.
+- Görsel şıklar çerçevesiz ve tek satırda gösterilir; "Görsel seçenek" ve soru puanı metinleri basılmaz.
+- Sorular tek sayfaya sığabiliyorsa iki sütuna yüksekliklerine göre dengeli dağıtılır; içerik gerçekten sığmıyorsa yeni şablon sayfası açılır.
+- Denemesi bulunan sınavda yalnızca cevap anahtarı, açık yönetici onayıyla değiştirilebilir. Tamamlanmış sonuçlar backend tarafından yeniden hesaplanır ve audit kaydı tutulur.
+- Veritabanı bağlantısı bu çalışma sırasında yapılmamış ve migration uygulanmamıştır. Entegrasyon adımları `DATABASE_INTEGRATION.md` dosyasındadır.
